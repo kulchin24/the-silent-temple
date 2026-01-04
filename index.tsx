@@ -14,7 +14,15 @@ const LOADING_QUOTES = [
 ];
 
 // --- Audio Utilities ---
-const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+// Use a lazy getter or safe initialization for AudioContext to avoid mobile startup issues
+let sharedAudioContext: AudioContext | null = null;
+const getAudioContext = () => {
+  if (!sharedAudioContext) {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    sharedAudioContext = new Ctx(); // Let browser decide sample rate
+  }
+  return sharedAudioContext;
+};
 
 function decodeBase64(base64: string) {
   const binaryString = atob(base64);
@@ -291,127 +299,151 @@ const App = () => {
   }, []);
 
   const setupAmbientMusic = useCallback(() => {
-    if (!ambientContextRef.current) {
-      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new Ctx();
-      ambientContextRef.current = ctx;
-      const masterGain = ctx.createGain();
-      masterGain.gain.value = 0;
-      masterGain.connect(ctx.destination);
-      ambientGainRef.current = masterGain;
+    try {
+      if (!ambientContextRef.current) {
+        const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+        const ctx = new Ctx();
+        ambientContextRef.current = ctx;
+        const masterGain = ctx.createGain();
+        masterGain.gain.value = 0;
+        masterGain.connect(ctx.destination);
+        ambientGainRef.current = masterGain;
 
-      const createOsc = (freq: number, type: OscillatorType = 'sine', volume = 0.05) => {
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        osc.type = type;
-        osc.frequency.value = freq;
-        g.gain.value = volume;
-        const lfo = ctx.createOscillator();
-        const lfoGain = ctx.createGain();
-        lfo.frequency.value = 0.1 + Math.random() * 0.05;
-        lfoGain.gain.value = volume * 0.4;
-        lfo.connect(lfoGain);
-        lfoGain.connect(g.gain);
-        lfo.start();
-        osc.connect(g);
-        g.connect(masterGain);
-        osc.start();
-      };
+        const createOsc = (freq: number, type: OscillatorType = 'sine', volume = 0.05) => {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = type;
+          osc.frequency.value = freq;
+          g.gain.value = volume;
+          const lfo = ctx.createOscillator();
+          const lfoGain = ctx.createGain();
+          lfo.frequency.value = 0.1 + Math.random() * 0.05;
+          lfoGain.gain.value = volume * 0.4;
+          lfo.connect(lfoGain);
+          lfoGain.connect(g.gain);
+          lfo.start();
+          osc.connect(g);
+          g.connect(masterGain);
+          osc.start();
+        };
 
-      // Frequencies for a meditative, grounding drone
-      createOsc(65.41, 'sine', 0.08); 
-      createOsc(130.81, 'sine', 0.06);
-      createOsc(196.00, 'sine', 0.04);
-      createOsc(261.63, 'sine', 0.03);
-      createOsc(329.63, 'sine', 0.02);
+        // Frequencies for a meditative, grounding drone
+        createOsc(65.41, 'sine', 0.08); 
+        createOsc(130.81, 'sine', 0.06);
+        createOsc(196.00, 'sine', 0.04);
+        createOsc(261.63, 'sine', 0.03);
+        createOsc(329.63, 'sine', 0.02);
 
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 600;
-      filter.Q.value = 1;
-      masterGain.connect(filter);
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 600;
+        filter.Q.value = 1;
+        masterGain.connect(filter);
+      }
+    } catch (e) {
+      console.warn("Audio Context setup failed (likely browser restriction)", e);
     }
   }, []);
 
   const strikeZenBell = useCallback((multiplier = 1.0) => {
     if (!isMusicEnabled) return;
-    setupAmbientMusic();
-    if (!ambientContextRef.current) return;
-    const ctx = ambientContextRef.current;
-    if (ctx.state === 'suspended') ctx.resume();
-    const now = ctx.currentTime;
-    const fundamental = 55;
-    [1, 1.1, 1.5, 2, 2.7, 3, 4.1].forEach((ratio, i) => {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(fundamental * ratio, now);
-      g.gain.setValueAtTime(0, now);
-      const v = (i === 0 ? 0.6 : 0.3 / (i + 1)) * multiplier;
-      g.gain.linearRampToValueAtTime(v, now + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 10);
-      osc.connect(g);
-      g.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 10.1);
-    });
+    try {
+      setupAmbientMusic();
+      if (!ambientContextRef.current) return;
+      const ctx = ambientContextRef.current;
+      if (ctx.state === 'suspended') {
+        // Only try to resume; if it fails, catch it
+        ctx.resume().catch(() => {});
+      }
+      const now = ctx.currentTime;
+      const fundamental = 55;
+      [1, 1.1, 1.5, 2, 2.7, 3, 4.1].forEach((ratio, i) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(fundamental * ratio, now);
+        g.gain.setValueAtTime(0, now);
+        const v = (i === 0 ? 0.6 : 0.3 / (i + 1)) * multiplier;
+        g.gain.linearRampToValueAtTime(v, now + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 10);
+        osc.connect(g);
+        g.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 10.1);
+      });
+    } catch (e) {
+       console.warn("Bell failed to play", e);
+    }
   }, [setupAmbientMusic, isMusicEnabled]);
 
   const strikeBowl = useCallback(() => {
     if (!ambientContextRef.current || !ambientGainRef.current || !isMusicEnabled) return;
-    const ctx = ambientContextRef.current;
-    const now = ctx.currentTime;
-    const freqs = [174.61, 349.23, 523.25, 698.46]; 
-    freqs.forEach((f, i) => {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = f;
-      g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(0.04 / (i + 1), now + 0.1);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 12);
-      osc.connect(g);
-      g.connect(ambientGainRef.current!);
-      osc.start(now);
-      osc.stop(now + 13);
-    });
+    try {
+      const ctx = ambientContextRef.current;
+      const now = ctx.currentTime;
+      const freqs = [174.61, 349.23, 523.25, 698.46]; 
+      freqs.forEach((f, i) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = f;
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.04 / (i + 1), now + 0.1);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 12);
+        osc.connect(g);
+        g.connect(ambientGainRef.current!);
+        osc.start(now);
+        osc.stop(now + 13);
+      });
+    } catch (e) {
+      console.warn("Bowl failed", e);
+    }
   }, [isMusicEnabled]);
 
   const playMonasticChant = useCallback(() => {
     if (!ambientContextRef.current || !isMusicEnabled) return;
-    const ctx = ambientContextRef.current;
-    const now = ctx.currentTime;
-    const baseFreq = 82.41; // E2
-    [1, 1.5, 2, 3].forEach((ratio, i) => {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      const filter = ctx.createBiquadFilter();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(baseFreq * ratio, now);
-      const lfo = ctx.createOscillator();
-      const lfoGain = ctx.createGain();
-      lfo.frequency.value = 4.5;
-      lfoGain.gain.value = baseFreq * 0.02;
-      lfo.connect(lfoGain);
-      lfoGain.connect(osc.frequency);
-      lfo.start();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(300 / (i + 1), now);
-      filter.Q.value = 2;
-      g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(0.08 / (i + 1), now + 1.5);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 7);
-      osc.connect(filter).connect(g).connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 7.5);
-    });
+    try {
+      const ctx = ambientContextRef.current;
+      const now = ctx.currentTime;
+      const baseFreq = 82.41; // E2
+      [1, 1.5, 2, 3].forEach((ratio, i) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(baseFreq * ratio, now);
+        const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+        lfo.frequency.value = 4.5;
+        lfoGain.gain.value = baseFreq * 0.02;
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
+        lfo.start();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(300 / (i + 1), now);
+        filter.Q.value = 2;
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.08 / (i + 1), now + 1.5);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 7);
+        osc.connect(filter).connect(g).connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 7.5);
+      });
+    } catch (e) {
+      console.warn("Chant failed", e);
+    }
   }, [isMusicEnabled]);
 
   const handleInitialClick = () => {
     if (loadingPhase !== 'headphones') return;
-    if (audioContext.state === 'suspended') audioContext.resume();
-    setupAmbientMusic();
-    strikeZenBell(0.8);
+    try {
+       const ctx = getAudioContext();
+       if (ctx.state === 'suspended') ctx.resume();
+       setupAmbientMusic();
+       strikeZenBell(0.8);
+    } catch (e) {
+       console.warn("Initial audio unlock failed", e);
+    }
     setLoadingPhase('wisdom');
   };
 
@@ -425,21 +457,27 @@ const App = () => {
   const enterSanctuary = useCallback(() => {
     if (loadingPhase !== 'wisdom') return;
     setLoadingPhase('entering');
-    if (audioContext.state === 'suspended') audioContext.resume();
-    strikeZenBell(1.2); 
-    playMonasticChant();
-    setupAmbientMusic();
-    if (ambientContextRef.current && ambientGainRef.current) {
-      if (ambientContextRef.current.state === 'suspended') ambientContextRef.current.resume();
-      // Only fade in if music is enabled
-      const targetGain = isMusicEnabled ? 0.4 : 0;
-      ambientGainRef.current.gain.setTargetAtTime(targetGain, ambientContextRef.current.currentTime, 4);
-      
-      if (!bowlTimerRef.current) {
-        strikeBowl();
-        bowlTimerRef.current = window.setInterval(strikeBowl, 20000);
+    try {
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') ctx.resume();
+      strikeZenBell(1.2); 
+      playMonasticChant();
+      setupAmbientMusic();
+      if (ambientContextRef.current && ambientGainRef.current) {
+        if (ambientContextRef.current.state === 'suspended') ambientContextRef.current.resume().catch(() => {});
+        // Only fade in if music is enabled
+        const targetGain = isMusicEnabled ? 0.4 : 0;
+        ambientGainRef.current.gain.setTargetAtTime(targetGain, ambientContextRef.current.currentTime, 4);
+        
+        if (!bowlTimerRef.current) {
+          strikeBowl();
+          bowlTimerRef.current = window.setInterval(strikeBowl, 20000);
+        }
       }
+    } catch (e) {
+      console.warn("Entrance audio failed", e);
     }
+    
     const sequence = async () => {
       await new Promise(r => setTimeout(r, 1000));
       setIsOverlayFading(true);
@@ -458,18 +496,20 @@ const App = () => {
   // Handle Music Toggle Fade
   useEffect(() => {
     if (!ambientContextRef.current || !ambientGainRef.current) return;
-    const ctx = ambientContextRef.current;
-    const gain = ambientGainRef.current.gain;
-    const now = ctx.currentTime;
+    try {
+      const ctx = ambientContextRef.current;
+      const gain = ambientGainRef.current.gain;
+      const now = ctx.currentTime;
 
-    if (isMusicEnabled) {
-      if (ctx.state === 'suspended') ctx.resume();
-      gain.cancelScheduledValues(now);
-      gain.setTargetAtTime(0.4, now, 2); 
-    } else {
-      gain.cancelScheduledValues(now);
-      gain.setTargetAtTime(0, now, 0.5);
-    }
+      if (isMusicEnabled) {
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        gain.cancelScheduledValues(now);
+        gain.setTargetAtTime(0.4, now, 2); 
+      } else {
+        gain.cancelScheduledValues(now);
+        gain.setTargetAtTime(0, now, 0.5);
+      }
+    } catch(e) {}
   }, [isMusicEnabled]);
 
   const stopAudio = useCallback(() => {
@@ -520,11 +560,15 @@ const App = () => {
 
   const playTTS = useCallback(async (text: string, msgId: string, isAuto: boolean = false) => {
     if (isAuto && !isAudioEnabled) return;
-    if (audioContext.state === 'suspended') await audioContext.resume();
     stopAudio();
-    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPlaying: true } : m));
-    setIsSpeaking(true);
+    
     try {
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') await ctx.resume();
+      
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPlaying: true } : m));
+      setIsSpeaking(true);
+
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
@@ -537,24 +581,24 @@ const App = () => {
       });
       const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (!base64Audio) throw new Error("Audio failed");
-      const audioBuffer = await decodeAudioData(decodeBase64(base64Audio), audioContext);
+      const audioBuffer = await decodeAudioData(decodeBase64(base64Audio), ctx);
       
       // Create source
-      const source = audioContext.createBufferSource();
+      const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       
       // 1. Reset speed to 1x
       source.playbackRate.value = 1.0; 
 
       // 2. Create a Low-shelf filter to boost bass frequencies
-      const bassFilter = audioContext.createBiquadFilter();
+      const bassFilter = ctx.createBiquadFilter();
       bassFilter.type = 'lowshelf';
       bassFilter.frequency.value = 200; // Boost frequencies below 200Hz
       bassFilter.gain.value = 8;        // Boost by 8 decibels
 
       // Connect nodes: Source -> Filter -> Destination
       source.connect(bassFilter);
-      bassFilter.connect(audioContext.destination);
+      bassFilter.connect(ctx.destination);
 
       source.onended = () => {
         setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPlaying: false } : m));
@@ -572,13 +616,19 @@ const App = () => {
 
   const handleSend = async () => {
     if (!input.trim() || isThinking || !isSettled) return;
-    stopAudio();
-    strikeZenBell(1.1);
+    
+    // Attempt Audio, but don't let it crash the app if it fails
+    try {
+      stopAudio();
+      strikeZenBell(1.1);
+    } catch (e) {
+      console.warn("Bell audio failed in handleSend", e);
+    }
+
     const userMsg: Message = { id: Date.now().toString(), role: 'user', text: input };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
     setIsThinking(true);
-    // Monk "listens"
     
     try {
       const result = await chatRef.current.sendMessageStream({ message: input });
@@ -595,17 +645,18 @@ const App = () => {
       }
       
       // Once text is done, if auto-audio is on, play it. 
-      // Note: isSpeaking stays true until audio finishes or we set it false here if audio disabled
       if (isAudioEnabled) {
          playTTS(fullText, modelMsgId, true);
       } else {
          setIsSpeaking(false);
       }
 
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
       setIsSpeaking(false);
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "The path is obscured. Breathe and speak again." }]);
+      // SHOW THE REAL ERROR MESSAGE to the user to help debug
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: `The path is obscured. (${errorMsg})` }]);
     } finally { 
       setIsThinking(false); 
     }
@@ -707,6 +758,7 @@ const App = () => {
             onClick={handleSend} 
             disabled={!input.trim() || isThinking || !isSettled} 
             className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 text-stone-700 rounded-full flex items-center justify-center transition-all hover:text-[#d4af37] disabled:opacity-0"
+            style={{ touchAction: 'manipulation' }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
           </button>
