@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -26,6 +27,14 @@
         font-family: 'Lora', serif;
       }
       
+      @keyframes siteFade {
+        from { opacity: 0; background: black; }
+        to { opacity: 1; background: var(--bg-color); }
+      }
+      .site-entrance {
+        animation: siteFade 3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      }
+
       .bg-radial-glow {
         background: radial-gradient(circle at center, var(--accent-gold) 0%, transparent 60%);
       }
@@ -43,21 +52,25 @@
         width: 160px;
         height: 160px;
       }
-      .circle-ring {
+      .ripple {
         position: absolute;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        border: 1px solid rgba(212, 175, 55, 0.05);
+        border: 0.5px solid rgba(212, 175, 55, 0.15);
         border-radius: 50%;
+        opacity: 0;
       }
-      .ring-1 { width: 100%; height: 100%; animation: ringBreath 12s infinite; }
-      .ring-2 { width: 80%; height: 80%; animation: ringBreath 12s infinite 2s; }
-      .ring-3 { width: 60%; height: 60%; animation: ringBreath 12s infinite 4s; }
+      .ripple-1 { width: 100%; height: 100%; animation: waterRipple 8s cubic-bezier(0.1, 0.4, 0.2, 1) infinite; }
+      .ripple-2 { width: 100%; height: 100%; animation: waterRipple 8s cubic-bezier(0.1, 0.4, 0.2, 1) infinite 2s; }
+      .ripple-3 { width: 100%; height: 100%; animation: waterRipple 8s cubic-bezier(0.1, 0.4, 0.2, 1) infinite 4s; }
+      .ripple-4 { width: 100%; height: 100%; animation: waterRipple 8s cubic-bezier(0.1, 0.4, 0.2, 1) infinite 6s; }
 
-      @keyframes ringBreath {
-        0%, 100% { opacity: 0.05; transform: translate(-50%, -50%) scale(1); }
-        50% { opacity: 0.15; transform: translate(-50%, -50%) scale(1.02); }
+      @keyframes waterRipple {
+        0% { width: 20%; height: 20%; opacity: 0; border-width: 2px; filter: blur(2px); }
+        5% { opacity: 0.4; border-width: 1px; }
+        50% { opacity: 0.1; filter: blur(5px); }
+        100% { width: 160%; height: 160%; opacity: 0; border-width: 0.1px; filter: blur(10px); }
       }
 
       @keyframes monkEntrance {
@@ -115,6 +128,19 @@
       .temple-glow {
         background: radial-gradient(circle at center, rgba(212, 175, 55, 0.02) 0%, transparent 70%);
       }
+
+      /* Logo Erase Animation */
+      .erase-path {
+        stroke-dasharray: 100;
+        stroke-dashoffset: 0;
+        transition: stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .erasing .erase-path {
+        stroke-dashoffset: 100;
+      }
+      .erasing .erase-path.p1 { transition-delay: 0s; }
+      .erasing .erase-path.p2 { transition-delay: 0.2s; }
+      .erasing .erase-path.p3 { transition-delay: 0.1s; }
 
       /* Glowing Container for Input visibility */
       .input-glow-container::before {
