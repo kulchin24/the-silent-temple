@@ -3,8 +3,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>The Silent Temple | Zen Wisdom</title>
+    
+    <!-- PWA & iOS Home Screen Tags -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Temple" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="theme-color" content="#12100e" />
+
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -22,6 +31,9 @@
         font-family: 'Inter', sans-serif;
         margin: 0;
         overflow: hidden;
+        /* Handle iOS Notch/Safe Area */
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
       }
       .font-serif {
         font-family: 'Lora', serif;
