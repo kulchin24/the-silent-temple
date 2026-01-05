@@ -533,17 +533,19 @@ const App = () => {
 
           <div className={`absolute inset-0 flex flex-col items-center justify-center transition-opacity duration-1000 ${isLogoVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
             
-            <div className={`absolute flex flex-col items-center justify-center translate-y-[-140px] transition-all duration-1000 ${loadingPhase === 'entering' ? 'scale-[1.05] opacity-0' : ''}`}>
+            {/* Logo Block: Positioned with absolute top to ensure stability across phases */}
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[200px] flex flex-col items-center justify-center transition-all duration-1000 ${loadingPhase === 'entering' ? 'scale-[1.05] opacity-0 blur-md' : 'scale-100 opacity-100 blur-0'}`}>
               <div className="relative mb-8">
                  <div className={`absolute inset-0 bg-[#d4af37] blur-[60px] rounded-full scale-[2.5] transition-opacity duration-1000 ${loadingPhase === 'entering' ? 'opacity-0' : 'opacity-25'}`} />
                  <LotusIcon size={90} className="relative z-10" isErasing={loadingPhase === 'entering'} />
               </div>
-              <h1 className={`text-[#d4af37] font-serif text-lg sm:text-xl tracking-[0.2em] sm:tracking-[0.5em] uppercase drop-shadow-lg text-center whitespace-nowrap transition-all duration-[1500ms] ease-out ${loadingPhase === 'entering' ? 'opacity-0 scale-[1.05] blur-sm' : 'opacity-100 scale-100 blur-0'}`}>
+              <h1 className="text-[#d4af37] font-serif text-lg sm:text-xl tracking-[0.2em] sm:tracking-[0.5em] uppercase drop-shadow-lg text-center whitespace-nowrap">
                 The Silent Temple
               </h1>
             </div>
 
-            <div className={`max-w-xl px-12 text-center transition-all duration-[2000ms] mt-32 flex flex-col gap-4 ${isQuoteVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'} ${loadingPhase === 'entering' ? 'opacity-0 scale-105' : ''}`}>
+            {/* Quote Block: Positioned separately to avoid affecting Logo position */}
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[-20px] w-full max-w-xl px-12 text-center transition-all duration-[2000ms] flex flex-col gap-4 ${isQuoteVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'} ${loadingPhase === 'entering' ? 'opacity-0 scale-105' : ''}`}>
                <p className="text-stone-500 font-serif text-lg md:text-xl italic tracking-wide leading-relaxed">
                  "{loadingQuote?.text}"
                </p>
