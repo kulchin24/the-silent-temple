@@ -231,63 +231,91 @@ const HeaderControls = ({
   isVoice: boolean, toggleVoice: () => void, 
   onAboutClick: () => void,
   hidden?: boolean 
-}) => (
-  <div className={`absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 z-50 flex gap-3 transition-all duration-1000 animate-in fade-in zoom-in-95 ${hidden ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-    
-    <button 
-      onClick={(e) => { e.stopPropagation(); onAboutClick(); }}
-      className="p-3 rounded-full border border-stone-800/50 backdrop-blur-md transition-all duration-300 group text-stone-600 bg-transparent hover:text-[#d4af37] hover:border-[#d4af37]/50"
-      aria-label="About"
-    >
-        <span className="font-serif italic font-bold text-lg leading-none w-4 h-4 flex items-center justify-center">i</span>
-    </button>
-    
-    <div className="w-[1px] h-10 bg-stone-800/50 mx-1" />
+}) => {
+  const [showAudioMenu, setShowAudioMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-    <button 
-      onClick={(e) => { e.stopPropagation(); toggleMusic(); }}
-      className={`p-3 rounded-full border border-stone-800/50 backdrop-blur-md transition-all duration-300 group ${isMusic ? 'text-[#d4af37] bg-stone-900/40 hover:bg-stone-900/60' : 'text-stone-600 bg-transparent hover:text-stone-400 hover:border-stone-700'}`}
-      aria-label={isMusic ? "Mute Ambience" : "Enable Ambience"}
-    >
-      {isMusic ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-           <path d="M9 18V5l12-2v13" />
-           <circle cx="6" cy="18" r="3" />
-           <circle cx="18" cy="16" r="3" />
-        </svg>
-      ) : (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-           <path d="M9 18V5l12-2v13" />
-           <circle cx="6" cy="18" r="3" />
-           <circle cx="18" cy="16" r="3" />
-           <line x1="2" y1="2" x2="22" y2="22" className="opacity-70" />
-        </svg>
-      )}
-    </button>
-    <button 
-      onClick={(e) => { e.stopPropagation(); toggleVoice(); }}
-      className={`p-3 rounded-full border border-stone-800/50 backdrop-blur-md transition-all duration-300 group ${isVoice ? 'text-[#d4af37] bg-stone-900/40 hover:bg-stone-900/60' : 'text-stone-600 bg-transparent hover:text-stone-400 hover:border-stone-700'}`}
-      aria-label={isVoice ? "Mute Voice" : "Enable Voice"}
-    >
-      {isVoice ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-          <line x1="12" y1="19" x2="12" y2="23" />
-          <line x1="8" y1="23" x2="16" y2="23" />
-        </svg>
-      ) : (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-           <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-           <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-           <line x1="12" y1="19" x2="12" y2="23" />
-           <line x1="8" y1="23" x2="16" y2="23" />
-           <line x1="2" y1="2" x2="22" y2="22" className="opacity-70" />
-        </svg>
-      )}
-    </button>
-  </div>
-);
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowAudioMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  return (
+    <div className={`absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 z-50 flex gap-3 items-center transition-all duration-1000 animate-in fade-in zoom-in-95 ${hidden ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+      
+      {/* Audio Control Dropdown */}
+      <div className="relative" ref={menuRef}>
+        <button 
+          onClick={(e) => { e.stopPropagation(); setShowAudioMenu(!showAudioMenu); }}
+          className={`p-3 rounded-full border backdrop-blur-md transition-all duration-300 group ${showAudioMenu || isMusic || isVoice ? 'text-[#d4af37] bg-stone-900/40 border-[#d4af37]/30' : 'text-stone-600 bg-transparent border-stone-800/50 hover:text-stone-400 hover:border-stone-700'}`}
+          aria-label="Audio Settings"
+        >
+          {/* Speaker / Sound Wave Icon */}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+             <path d="M11 5L6 9H2v6h4l5 4V5z" />
+             <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+             <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+          </svg>
+        </button>
+
+        {/* Dropdown Menu */}
+        {showAudioMenu && (
+          <div className="absolute top-full right-0 mt-3 w-48 bg-[#12100e]/95 backdrop-blur-xl border border-stone-800 rounded-2xl shadow-2xl overflow-hidden z-[60] animate-in slide-in-from-top-2 fade-in duration-200">
+             <div className="py-2">
+                {/* Music Toggle */}
+                <button 
+                  onClick={(e) => { e.stopPropagation(); toggleMusic(); }}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-stone-800/30 transition-colors group"
+                >
+                   <div className="flex items-center gap-3">
+                      <span className={`text-[#d4af37] transition-opacity ${isMusic ? 'opacity-100' : 'opacity-40'}`}>
+                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                      </span>
+                      <span className={`text-[10px] uppercase tracking-widest font-serif ${isMusic ? 'text-stone-200' : 'text-stone-500'}`}>Ambience</span>
+                   </div>
+                   <div className={`w-1.5 h-1.5 rounded-full transition-all ${isMusic ? 'bg-[#d4af37] shadow-[0_0_8px_#d4af37]' : 'bg-stone-800'}`} />
+                </button>
+
+                <div className="h-[1px] bg-stone-800/50 mx-4" />
+
+                {/* Voice Toggle */}
+                <button 
+                  onClick={(e) => { e.stopPropagation(); toggleVoice(); }}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-stone-800/30 transition-colors group"
+                >
+                   <div className="flex items-center gap-3">
+                      <span className={`text-[#d4af37] transition-opacity ${isVoice ? 'opacity-100' : 'opacity-40'}`}>
+                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                      </span>
+                      <span className={`text-[10px] uppercase tracking-widest font-serif ${isVoice ? 'text-stone-200' : 'text-stone-500'}`}>Voice</span>
+                   </div>
+                   <div className={`w-1.5 h-1.5 rounded-full transition-all ${isVoice ? 'bg-[#d4af37] shadow-[0_0_8px_#d4af37]' : 'bg-stone-800'}`} />
+                </button>
+             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="w-[1px] h-8 bg-stone-800/50" />
+
+      {/* Info/About Button - Moved to Rightmost */}
+      <button 
+        onClick={(e) => { e.stopPropagation(); onAboutClick(); }}
+        className="p-3 rounded-full border border-stone-800/50 backdrop-blur-md transition-all duration-300 group text-stone-600 bg-transparent hover:text-[#d4af37] hover:border-[#d4af37]/50"
+        aria-label="About"
+      >
+          <span className="font-serif italic font-bold text-lg leading-none w-4 h-4 flex items-center justify-center">i</span>
+      </button>
+    </div>
+  );
+};
 
 const AboutModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => (
   <div 
