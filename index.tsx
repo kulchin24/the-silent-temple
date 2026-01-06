@@ -289,13 +289,13 @@ const HeaderControls = ({
   </div>
 );
 
-const AboutModal = ({ onClose }: { onClose: () => void }) => (
+const AboutModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => (
   <div 
-    className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-xl animate-in fade-in duration-500"
+    className={`fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-xl transition-all duration-500 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
     onClick={onClose}
   >
     <div 
-      className="relative w-[90%] md:w-[80%] max-w-2xl max-h-[85vh] overflow-y-auto p-8 md:p-12 bg-[#12100e]/80 border border-stone-800/50 shadow-2xl rounded-sm scrollbar-hide"
+      className={`relative w-[90%] md:w-[80%] max-w-2xl max-h-[85vh] overflow-y-auto p-8 md:p-12 bg-[#12100e]/80 border border-stone-800/50 shadow-2xl rounded-sm scrollbar-hide transition-all duration-500 ease-out ${isOpen ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'}`}
       onClick={e => e.stopPropagation()}
     >
       <button 
@@ -1508,7 +1508,7 @@ const App = () => {
         />
       )}
 
-      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+      <AboutModal isOpen={showAbout} onClose={() => setShowAbout(false)} />
 
       {loadingPhase !== 'done' && (
         <div className={`fixed inset-0 z-[100] bg-[#12100e] flex flex-col items-center justify-center overflow-hidden transition-opacity duration-[2000ms] ${isOverlayFading ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
