@@ -183,6 +183,34 @@
       .input-glow-container {
         animation: glowPulse 4s infinite ease-in-out;
       }
+
+      /* Burner Journal Animation - The Smoke Dissolve */
+      @keyframes smokeDissolve {
+        0% {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+          filter: blur(0px);
+        }
+        50% {
+          opacity: 0.5;
+          color: #a8a8a8; /* Turns gray like smoke */
+          filter: blur(4px);
+        }
+        100% {
+          opacity: 0;
+          transform: translateY(-60px) scale(1.1); /* Floats up and expands */
+          filter: blur(12px);
+        }
+      }
+
+      /* The class we will toggle in React */
+      .burning {
+        animation: smokeDissolve 1.5s ease-in-out forwards;
+        pointer-events: none; /* Prevents clicking while burning */
+        border-color: transparent !important; /* Hides border during burn */
+        background-color: transparent !important; /* Hides background */
+        box-shadow: none !important;
+      }
     </style>
 <script type="importmap">
 {
