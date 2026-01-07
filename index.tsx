@@ -129,10 +129,15 @@ async function generateSpeech(text: string, ctx: AudioContext, cacheKey?: string
   return await decodeAudioData(decodeBase64(base64Audio), ctx);
 }
 
+const getTimeOfDay = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "morning";
+  if (hour < 18) return "afternoon";
+  return "evening";
+};
+
 // --- Global Audio Cache (Module Scope) ---
 const breathingVoiceCache = new Map<string, AudioBuffer>();
-let isBreathingVoicesLoaded = false;
-let breathingVoicesLoadingPromise: Promise<void> | null = null;
 
 // --- Icons & Components ---
 
@@ -220,6 +225,58 @@ const ChatIcon = ({ className = "" }: { className?: string }) => (
     <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
   </svg>
 );
+
+const HourglassIcon = ({ className = "" }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M5 22h14" />
+    <path d="M5 2h14" />
+    <path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22" />
+    <path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" />
+  </svg>
+);
+
+// Unified Header Icon for "Morphing" effect
+const MorphingHeaderIcon = ({ mode, className = "" }: { mode: 'chat' | 'breathe' | 'journal' | 'focus', className?: string }) => {
+  // Using pathLength="1" allows us to animate strokeDashoffset from 0 (fully drawn) to 1 (fully hidden)
+  // regardless of the actual path geometry. This prevents "glitching" from incorrect dasharray values.
+  
+  const isJournal = mode === 'journal';
+  const isBreathe = mode === 'breathe';
+  const isFocus = mode === 'focus';
+
+  const baseClass = "transition-all duration-700 ease-in-out absolute inset-0";
+  
+  return (
+    <div className={`relative ${className}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.0" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
+            
+            {/* Journal (Fire) Paths */}
+            <g className={`${baseClass} ${isJournal ? 'opacity-100' : 'opacity-0'}`} 
+               style={{ strokeDasharray: 1, strokeDashoffset: isJournal ? 0 : 1 }}>
+                <path pathLength="1" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.1.2-2.2.6-3.3a1 1 0 0 0 3 2.8z"/>
+            </g>
+
+            {/* Breathe (Lotus/Meditating) Paths */}
+            <g className={`${baseClass} ${isBreathe ? 'opacity-100' : 'opacity-0'}`} 
+               style={{ strokeDasharray: 1, strokeDashoffset: isBreathe ? 0 : 1 }}>
+                 <circle pathLength="1" cx="12" cy="6" r="3.5" />
+                 <path pathLength="1" d="M12 8.5V13" />
+                 <path pathLength="1" d="M5 13c0-2.5 3-4.5 7-4.5s7 2 7 4.5" />
+                 <path pathLength="1" d="M5 13l3.5 4.5L12 19l3.5-1.5L19 13" />
+            </g>
+
+             {/* Focus (Hourglass) Paths */}
+             <g className={`${baseClass} ${isFocus ? 'opacity-100' : 'opacity-0'}`} 
+                style={{ strokeDasharray: 1, strokeDashoffset: isFocus ? 0 : 1 }}>
+                <path pathLength="1" d="M5 22h14" />
+                <path pathLength="1" d="M5 2h14" />
+                <path pathLength="1" d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22" />
+                <path pathLength="1" d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" />
+             </g>
+        </svg>
+    </div>
+  );
+};
 
 const HeaderControls = ({ 
   isMusic, toggleMusic, 
@@ -350,12 +407,12 @@ const AboutModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
               <p className="text-stone-400 italic font-light">"A mirror for your thoughts. Guided by wisdom."</p>
            </div>
            <div>
-              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Burner Journal</h3>
-              <p className="text-stone-400 italic font-light">"An offering to the fire. Write and release."</p>
+              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Focus</h3>
+              <p className="text-stone-400 italic font-light">"Time is a circle. Work and rest in harmony."</p>
            </div>
            <div>
-              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">Privacy</h3>
-              <p className="text-stone-400 italic font-light">"The soul is not a data point. Everything remains local."</p>
+              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Burner Journal</h3>
+              <p className="text-stone-400 italic font-light">"An offering to the fire. Write and release."</p>
            </div>
         </div>
 
@@ -439,17 +496,269 @@ const TypewriterText = ({ text, isStreaming, onDone }: { text: string; isStreami
 
 // --- View Components ---
 
+const PomodoroView = ({ 
+  isActive, 
+  onTimerComplete, 
+  onRestoreComplete,
+  onStart
+}: { 
+  isActive: boolean, 
+  onTimerComplete: () => void,
+  onRestoreComplete: () => void,
+  onStart: () => void
+}) => {
+  const [mode, setMode] = useState<'work' | 'break'>('work');
+  const [isRunning, setIsRunning] = useState(false);
+  
+  // Settings
+  const [workDuration, setWorkDuration] = useState(25);
+  const [breakDuration, setBreakDuration] = useState(5);
+  const [iterations, setIterations] = useState(4); // Default 4 cycles
+  
+  // Runtime State
+  const [currentIteration, setCurrentIteration] = useState(1);
+  const [timeLeft, setTimeLeft] = useState(workDuration * 60);
+  const totalTimeRef = useRef(workDuration * 60);
+
+  // Calculate total predicted time based on settings
+  const totalDurationMins = iterations * (workDuration + breakDuration);
+  const totalHours = Math.floor(totalDurationMins / 60);
+  const totalMins = totalDurationMins % 60;
+  const totalTimeString = totalHours > 0 ? `${totalHours}h ${totalMins}m` : `${totalMins}m`;
+
+  // Sync settings when not running
+  useEffect(() => {
+    if (!isRunning) {
+       const duration = mode === 'work' ? workDuration : breakDuration;
+       setTimeLeft(duration * 60);
+       totalTimeRef.current = duration * 60;
+       // Reset iteration count if we stop
+       setCurrentIteration(1);
+       setMode('work');
+    }
+  }, [workDuration, breakDuration, iterations, isRunning]);
+
+  useEffect(() => {
+    if (!isActive) {
+        setIsRunning(false); // Auto-pause if we leave the view
+    }
+  }, [isActive]);
+
+  useEffect(() => {
+    let interval: number;
+    if (isRunning && isActive) {
+      interval = window.setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            // Cycle complete
+            if (mode === 'work') {
+               onTimerComplete(); // Low bell
+               setMode('break');
+               totalTimeRef.current = breakDuration * 60;
+               return breakDuration * 60; // Immediately start break
+            } else {
+               onRestoreComplete(); // Soft melody
+               
+               if (currentIteration < iterations) {
+                   // Move to next iteration
+                   setCurrentIteration(c => c + 1);
+                   setMode('work');
+                   totalTimeRef.current = workDuration * 60;
+                   return workDuration * 60; // Immediately start work
+               } else {
+                   // All iterations done
+                   setIsRunning(false);
+                   setMode('work');
+                   setCurrentIteration(1);
+                   totalTimeRef.current = workDuration * 60;
+                   return workDuration * 60;
+               }
+            }
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isRunning, isActive, mode, iterations, currentIteration, workDuration, breakDuration, onTimerComplete, onRestoreComplete]);
+
+  const toggleTimer = () => {
+    if (!isRunning) {
+      onStart();
+    }
+    setIsRunning(!isRunning);
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Calculate Progress (0 to 1, where 1 is full/done)
+  const progress = Math.max(0, Math.min(1, (totalTimeRef.current - timeLeft) / totalTimeRef.current));
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full w-full relative animate-in fade-in duration-1000">
+      
+      {/* Dynamic Style for Wave Animation */}
+      <style>{`
+        @keyframes drift {
+          from { transform: translateX(0); }
+          to { transform: translateX(-200px); }
+        }
+      `}</style>
+
+      {/* Main Interactive Circle */}
+      <div 
+        className="relative w-72 h-72 md:w-96 md:h-96 cursor-pointer group select-none tap-highlight-transparent"
+        onClick={toggleTimer}
+      >
+         {/* The Visual */}
+         <svg viewBox="0 0 200 200" className="w-full h-full drop-shadow-[0_0_15px_rgba(0,0,0,0.5)]">
+            <defs>
+               <clipPath id="liquidMask">
+                  {/* Circle Mask for Liquid */}
+                  <circle cx="100" cy="100" r="90" />
+               </clipPath>
+            </defs>
+            
+            {/* Liquid Layer */}
+            <g clipPath="url(#liquidMask)">
+                {/* Background Void */}
+                <circle cx="100" cy="100" r="100" fill="#0c0a09" /> 
+                
+                {/* Rising Liquid Group */}
+                <g style={{ 
+                    transform: `translateY(${200 * (1 - progress)}px)`,
+                    transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)'
+                }}>
+                    {/* Back Wave */}
+                    <path 
+                      d="M0,10 Q50,-5 100,10 T200,10 T300,10 T400,10 V300 H0 Z" 
+                      fill={mode === 'work' ? "#854d0e" : "#44403c"} 
+                      opacity="0.4"
+                      style={{ animation: 'drift 10s infinite linear' }}
+                    />
+                    
+                    {/* Front Wave */}
+                    <path 
+                      d="M0,5 Q50,15 100,5 T200,5 T300,5 T400,5 V300 H0 Z" 
+                      fill={mode === 'work' ? "#d4af37" : "#a8a29e"} 
+                      opacity="0.9"
+                      style={{ animation: 'drift 6s infinite linear reverse' }}
+                    />
+                </g>
+            </g>
+
+            {/* Regular Clean Circle Ring */}
+            <circle 
+              cx="100" 
+              cy="100" 
+              r="90" 
+              fill="none" 
+              stroke="#292524" 
+              strokeWidth="4" 
+            />
+            {/* Inner thin accent ring */}
+            <circle 
+              cx="100" 
+              cy="100" 
+              r="84" 
+              fill="none" 
+              stroke={mode === 'work' ? "#d4af37" : "#a8a29e"} 
+              strokeWidth="0.5" 
+              opacity="0.3"
+            />
+         </svg>
+
+         {/* Overlay Info */}
+         <div className={`absolute inset-0 flex flex-col items-center justify-center transition-all duration-700`}>
+             <div className="flex flex-col items-center">
+                 <span className={`text-[10px] uppercase tracking-[0.4em] mb-4 transition-opacity duration-300 ${mode === 'work' ? 'text-[#d4af37]' : 'text-stone-400'} ${isRunning ? 'opacity-100' : 'opacity-0'}`}>
+                    {mode === 'work' ? 'Focus' : 'Restore'}
+                 </span>
+                 
+                 {/* Time Display - Fades out when running to reduce anxiety, reveals on hover */}
+                 <span className={`font-serif text-6xl text-stone-200 tracking-wider transition-all duration-700 ${isRunning ? 'opacity-0 group-hover:opacity-100 blur-sm group-hover:blur-0 scale-95' : 'opacity-100 scale-100 blur-0'}`}>
+                    {formatTime(timeLeft)}
+                 </span>
+
+                 {/* Settings / Status Toggle */}
+                 <div className="h-6 mt-6 relative w-full flex justify-center">
+                     {/* Start Prompt (Hidden when running) */}
+                     <span className={`absolute text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-[#d4af37] transition-all duration-500 ${isRunning ? 'opacity-0 translate-y-2' : 'opacity-100 translate-y-0'}`}>
+                        Tap to Begin
+                     </span>
+                     
+                     {/* Cycle Count (Visible when running) */}
+                     <span className={`absolute text-[9px] uppercase tracking-[0.2em] text-stone-500 transition-all duration-500 ${isRunning ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
+                        Cycle {currentIteration} / {iterations}
+                     </span>
+                 </div>
+             </div>
+         </div>
+      </div>
+
+      {/* Settings Panel (Only when paused) */}
+      <div className={`mt-8 md:mt-12 flex flex-col gap-8 transition-all duration-700 ${isRunning ? 'opacity-0 translate-y-8 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
+           
+           {/* Row 1: Durations */}
+           <div className="flex items-center gap-12">
+               <div className="flex flex-col items-center gap-3 group">
+                  <span className="text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-[#d4af37] transition-colors">Focus Time</span>
+                  <div className="flex items-center gap-4">
+                     <button onClick={(e) => { e.stopPropagation(); setWorkDuration(Math.max(1, workDuration - 5)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">-</button>
+                     <span className="font-serif text-xl text-stone-300 w-8 text-center">{workDuration}</span>
+                     <button onClick={(e) => { e.stopPropagation(); setWorkDuration(Math.min(60, workDuration + 5)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">+</button>
+                  </div>
+               </div>
+               
+               <div className="w-[1px] h-10 bg-stone-800" />
+               
+               <div className="flex flex-col items-center gap-3 group">
+                  <span className="text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-stone-400 transition-colors">Restore Time</span>
+                  <div className="flex items-center gap-4">
+                     <button onClick={(e) => { e.stopPropagation(); setBreakDuration(Math.max(1, breakDuration - 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-400 hover:text-stone-300 transition-all">-</button>
+                     <span className="font-serif text-xl text-stone-400 w-8 text-center">{breakDuration}</span>
+                     <button onClick={(e) => { e.stopPropagation(); setBreakDuration(Math.min(30, breakDuration + 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-400 hover:text-stone-300 transition-all">+</button>
+                  </div>
+               </div>
+           </div>
+
+           {/* Row 2: Iterations & Total Time */}
+           <div className="flex items-center justify-center gap-12 pt-4 border-t border-stone-800/30">
+               <div className="flex flex-col items-center gap-3 group">
+                  <span className="text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-stone-300 transition-colors">Cycles</span>
+                  <div className="flex items-center gap-4">
+                     <button onClick={(e) => { e.stopPropagation(); setIterations(Math.max(1, iterations - 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-500 hover:text-stone-300 transition-all">-</button>
+                     <span className="font-serif text-xl text-stone-300 w-8 text-center">{iterations}</span>
+                     <button onClick={(e) => { e.stopPropagation(); setIterations(Math.min(10, iterations + 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-500 hover:text-stone-300 transition-all">+</button>
+                  </div>
+               </div>
+               
+               <div className="flex flex-col items-center gap-2">
+                   <span className="text-[9px] uppercase tracking-[0.2em] text-stone-600">Total Duration</span>
+                   <span className="font-serif text-lg text-[#d4af37] tracking-wide">{totalTimeString}</span>
+               </div>
+           </div>
+
+      </div>
+    </div>
+  );
+};
+
 const BreathingView = ({ isActive, setBreathingAudioActive, onImmersiveChange }: { isActive: boolean, setBreathingAudioActive: (active: boolean) => void, onImmersiveChange: (immersive: boolean) => void }) => {
   const [technique, setTechnique] = useState<'calm' | 'balance'>('calm');
   const [phase, setPhase] = useState<'inhale' | 'hold' | 'exhale' | 'idle'>('idle');
   const [guideState, setGuideState] = useState<'idle' | 'preparing' | 'three' | 'two' | 'one' | 'breathing'>('idle');
-  const [text, setText] = useState("Begin Practice");
+  const [text, setText] = useState("Preparing Wisdom...");
   const [isRunning, setIsRunning] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   
-  // Use persistent global cache state for initial loading
-  const [isAudioReady, setIsAudioReady] = useState(isBreathingVoicesLoaded);
-  
+  // Audio state
+  const [isAudioReady, setIsAudioReady] = useState(false);
   const currentVoiceSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   // Notify parent about immersive state changes
@@ -457,46 +766,61 @@ const BreathingView = ({ isActive, setBreathingAudioActive, onImmersiveChange }:
     onImmersiveChange(guideState !== 'idle');
   }, [guideState, onImmersiveChange]);
 
-  // Preload voices (Run once, populate global cache)
+  // Dynamic Script Generation
   useEffect(() => {
-    if (isBreathingVoicesLoaded) {
-        setIsAudioReady(true);
-        return;
-    }
+    if (!isActive) return;
 
-    const loadVoices = async () => {
-      const ctx = audioContext;
-      const phrases = {
-        'prepare': "Let us find stillness. Sit comfortably. Keep your eyes relaxed, half-open, gazing softly at the center. Let go of the day's weight. When you are ready, tap to begin.",
-      };
+    const generateDynamicIntro = async () => {
+        setIsGeneratingScript(true);
+        setIsAudioReady(false);
+        setText("Preparing Wisdom...");
+        try {
+            const timeOfDay = getTimeOfDay();
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            
+            // 1. Generate Text
+            const prompt = `You are a Zen master. It is ${timeOfDay}.
+            Generate a very brief, soothing single-sentence introduction for a breathing exercise.
+            The user is about to do the "${technique === 'calm' ? '4-7-8 Relax' : 'Box Balance'}" technique.
+            Focus on ${timeOfDay === 'morning' ? 'awakening/clarity' : timeOfDay === 'evening' ? 'release/rest' : 'centering'}.
+            Do not give instructions like 'inhale now', just set the mood. Max 20 words.
+            You MUST end with the phrase: "Tap the circle to start the exercise."`;
+            
+            const textResponse = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: prompt,
+            });
+            const introText = textResponse.text || "Let us find stillness together. Tap the circle to start the exercise.";
 
-      try {
-        const promises = Object.entries(phrases).map(async ([key, phrase]) => {
-           try {
-             // Use the specific cache key for this breathing instruction
-             const buffer = await generateSpeech(phrase, ctx, `breathing_${key}`);
-             breathingVoiceCache.set(key, buffer);
-           } catch(e) { console.warn("Failed to load voice", key); }
-        });
-        
-        await Promise.all(promises);
-        isBreathingVoicesLoaded = true;
-        setIsAudioReady(true);
-      } catch(e) { console.error(e); }
+            // 2. Generate Audio (TTS)
+            const audioBuffer = await generateSpeech(introText, audioContext);
+            breathingVoiceCache.set('current_intro', audioBuffer);
+            
+            setIsAudioReady(true);
+            setText("Begin Exercise");
+        } catch (e) {
+            console.error("Failed to generate breathing script", e);
+            // Fallback
+            setIsAudioReady(true);
+            setText("Begin Exercise");
+        } finally {
+            setIsGeneratingScript(false);
+        }
     };
+    
+    // Only generate if we haven't already for this session/technique combo, or just generate every time we enter the view?
+    // User requested "generate a different script every time".
+    generateDynamicIntro();
 
-    if (!breathingVoicesLoadingPromise) {
-        breathingVoicesLoadingPromise = loadVoices();
-    } else {
-        // If already loading elsewhere, just wait for it
-        breathingVoicesLoadingPromise.then(() => setIsAudioReady(true));
-    }
-  }, []);
+  }, [isActive, technique]); // Re-run when view becomes active or technique changes
 
   const playVoice = (key: string, onEnded?: () => void) => {
     const ctx = audioContext;
-    if (!ctx || !breathingVoiceCache.has(key)) {
-        console.warn("Audio cache miss or context invalid", key);
+    // For the dynamic intro, we use the specific key we saved to
+    const buffer = key === 'prepare' ? breathingVoiceCache.get('current_intro') : breathingVoiceCache.get(key);
+    
+    if (!buffer) {
+        console.warn("Audio cache miss", key);
         if (onEnded) onEnded();
         return;
     }
@@ -506,17 +830,14 @@ const BreathingView = ({ isActive, setBreathingAudioActive, onImmersiveChange }:
         try { currentVoiceSourceRef.current.stop(); } catch(e) {}
     }
 
-    const buffer = breathingVoiceCache.get(key);
-    if (buffer) {
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        const gain = ctx.createGain();
-        gain.gain.value = 1.0; 
-        source.connect(gain).connect(ctx.destination);
-        if (onEnded) source.onended = onEnded;
-        source.start();
-        currentVoiceSourceRef.current = source;
-    }
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = 1.0; 
+    source.connect(gain).connect(ctx.destination);
+    if (onEnded) source.onended = onEnded;
+    source.start();
+    currentVoiceSourceRef.current = source;
   };
   
   const playBeep = () => {
@@ -546,7 +867,7 @@ const BreathingView = ({ isActive, setBreathingAudioActive, onImmersiveChange }:
       setIsRunning(false);
       setGuideState('idle');
       setPhase('idle');
-      setText("Begin Practice");
+      // setText("Begin Practice"); // Handled in generation effect
       setBreathingAudioActive(false);
       if (currentVoiceSourceRef.current) {
         try { currentVoiceSourceRef.current.stop(); } catch(e) {}
@@ -601,14 +922,14 @@ const BreathingView = ({ isActive, setBreathingAudioActive, onImmersiveChange }:
     } else {
       setPhase('idle');
       // If we are not running but guideState is idle, reset text
-      if (guideState === 'idle') {
-          setText("Begin Practice");
+      if (guideState === 'idle' && isAudioReady) {
+          setText("Begin Exercise");
           setBreathingAudioActive(false);
       }
     }
 
     return () => clearTimeout(timeout);
-  }, [isRunning, technique]);
+  }, [isRunning, technique, isAudioReady]);
 
   const toggleBreathing = () => {
     if (!isAudioReady) return; // Prevent start if audio not loaded
@@ -676,14 +997,14 @@ const BreathingView = ({ isActive, setBreathingAudioActive, onImmersiveChange }:
       <div className={`flex items-center gap-4 mb-4 md:mb-8 absolute top-0 md:relative z-10 transition-opacity duration-1000 ${isImmersive ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
          <button 
            onClick={() => !isRunning && setTechnique('calm')}
-           disabled={isRunning}
+           disabled={isRunning || isGeneratingScript}
            className={`px-4 py-2 rounded-full border text-xs tracking-widest uppercase transition-all ${technique === 'calm' ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-stone-800 text-stone-600 hover:text-stone-400'}`}
          >
             Relax (4-7-8)
          </button>
          <button 
            onClick={() => !isRunning && setTechnique('balance')}
-           disabled={isRunning}
+           disabled={isRunning || isGeneratingScript}
            className={`px-4 py-2 rounded-full border text-xs tracking-widest uppercase transition-all ${technique === 'balance' ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-stone-800 text-stone-600 hover:text-stone-400'}`}
          >
             Balance (Box)
@@ -748,7 +1069,8 @@ const BreathingView = ({ isActive, setBreathingAudioActive, onImmersiveChange }:
           {text}
         </h3>
         <p className="text-stone-600 text-[10px] md:text-xs uppercase tracking-[0.2em] mt-4 opacity-60">
-            {!isAudioReady && "Initializing audio..."}
+            {isGeneratingScript && "Consulting the silence..."}
+            {!isGeneratingScript && !isAudioReady && "Initializing audio..."}
             {isAudioReady && guideState === 'idle' && "Tap center to begin"}
             {guideState === 'preparing' && "Tap when you are ready"} 
             {/* Note: The above preparing text won't be seen because opacity is 0 in immersive mode, but kept for structure */}
@@ -958,7 +1280,7 @@ type Message = {
 
 // Phases for cinematic intro
 type LoadingPhase = 'init' | 'logo-waiting' | 'logo-bloom' | 'shift-and-quote' | 'reveal-instruction' | 'entering' | 'done';
-type ViewMode = 'chat' | 'breathe' | 'journal';
+type ViewMode = 'chat' | 'breathe' | 'journal' | 'focus';
 
 const App = () => {
   const [loadingPhase, setLoadingPhase] = useState<LoadingPhase>('init');
@@ -990,6 +1312,7 @@ const App = () => {
   const masterGainRef = useRef<GainNode | null>(null);
   const templeGainRef = useRef<GainNode | null>(null);
   const breathDroneGainRef = useRef<GainNode | null>(null);
+  const focusGainRef = useRef<GainNode | null>(null);
   const bowlTimerRef = useRef<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1173,6 +1496,94 @@ const App = () => {
 
     createPadLayer([146.83, 220.00, 369.99], breathGain, 0.25); // Increased volume
 
+
+    // --- Channel 3: Focus (Pomodoro) ---
+    // Minimalist, Spacious, Reverberant (C Minor Add9) - Deep Space / Underwater
+    const focusGain = ctx.createGain();
+    focusGain.gain.value = 0;
+    focusGain.connect(master);
+    focusGainRef.current = focusGain;
+
+    // Layer 1: The Deep Void (Sub Drone) - Steady anchor
+    const focusSub = ctx.createOscillator();
+    focusSub.type = 'sine';
+    focusSub.frequency.value = 65.41; // C2
+    const focusSubGain = ctx.createGain();
+    focusSubGain.gain.value = 0.12; 
+    focusSub.connect(focusSubGain).connect(focusGain);
+    focusSub.start();
+
+    // Layer 2: Evolving Tonal Texture (C Minor 9) - Drifting pads
+    // C3, Eb3, G3, D4
+    const focusNotes = [130.81, 155.56, 196.00, 293.66];
+    focusNotes.forEach((f) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        const panner = ctx.createStereoPanner();
+        
+        osc.type = 'triangle'; // Slightly richer than sine
+        osc.frequency.value = f;
+        
+        // Slow Amplitude Modulation (breathing)
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = 0.03 + (Math.random() * 0.04); // Very slow
+        const lfoGain = ctx.createGain();
+        lfoGain.gain.value = 0.025; // Modulation depth
+        
+        // Base volume
+        g.gain.value = 0.015; // Very quiet base
+        
+        lfo.connect(lfoGain).connect(g.gain);
+        lfo.start();
+        
+        // Slow Panning
+        const panLfo = ctx.createOscillator();
+        panLfo.frequency.value = 0.02 + (Math.random() * 0.03);
+        panLfo.connect(panner.pan);
+        panLfo.start();
+
+        // Lowpass to make it distant/underwater
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 350 + (Math.random() * 150);
+
+        osc.connect(filter).connect(g).connect(panner).connect(focusGain);
+        osc.start();
+    });
+
+    // Layer 3: Occasional "Light" (High pings) - Distant thoughts
+    // Self-contained loop for occasional chimes
+    const triggerPing = () => {
+        if (ctx.state === 'closed') return;
+        const pingNow = ctx.currentTime;
+        // C5, D5, Eb5, G5
+        const pings = [523.25, 587.33, 622.25, 783.99];
+        const freq = pings[Math.floor(Math.random() * pings.length)];
+        
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        const pan = ctx.createStereoPanner();
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, pingNow);
+        
+        pan.pan.value = Math.random() * 2 - 1;
+        
+        g.gain.setValueAtTime(0, pingNow);
+        g.gain.linearRampToValueAtTime(0.025, pingNow + 0.5); // Slow attack
+        g.gain.exponentialRampToValueAtTime(0.001, pingNow + 8); // Long reverb tail
+        
+        osc.connect(g).connect(pan).connect(focusGain);
+        osc.start(pingNow);
+        osc.stop(pingNow + 8.5);
+        
+        // Schedule next ping
+        setTimeout(triggerPing, 4000 + Math.random() * 6000);
+    };
+    // Start the ping loop
+    triggerPing();
+
+
     if (ctx.state === 'suspended') ctx.resume();
   }, []);
 
@@ -1192,14 +1603,22 @@ const App = () => {
       if (mode === 'chat') {
           templeGainRef.current.gain.setTargetAtTime(1, now, transitionTime);
           breathDroneGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
+          if (focusGainRef.current) focusGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
       } else if (mode === 'breathe') {
           templeGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
           // Significantly reduced volume for breathing (0.2), and static
           const targetVol = isBreathingActive ? 0.2 : 0.1;
           breathDroneGainRef.current.gain.setTargetAtTime(targetVol, now, transitionTime);
+          if (focusGainRef.current) focusGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
+      } else if (mode === 'focus') {
+          templeGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
+          breathDroneGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
+          if (focusGainRef.current) focusGainRef.current.gain.setTargetAtTime(1, now, transitionTime);
       } else if (mode === 'journal') {
+          // Quiet ambience for journal
           templeGainRef.current.gain.setTargetAtTime(0.2, now, transitionTime); 
           breathDroneGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
+          if (focusGainRef.current) focusGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
       }
 
   }, [isMusicEnabled]);
@@ -1233,6 +1652,88 @@ const App = () => {
       osc.stop(now + 10.1);
     });
   }, [initAudio, isMusicEnabled]);
+
+  const strikeHighBell = useCallback(() => {
+    if (!isMusicEnabled) return;
+    initAudio();
+    if (!ambientContextRef.current) return;
+    const ctx = ambientContextRef.current;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+
+    // Tingsha / High bell simulation
+    // High partials, long ring
+    const freqs = [2600, 2700, 5200, 7800];
+    freqs.forEach((f, i) => {
+       const osc = ctx.createOscillator();
+       const g = ctx.createGain();
+       osc.type = 'sine';
+       // Slight detune for shimmering effect
+       osc.frequency.setValueAtTime(f + (Math.random() * 20 - 10), now);
+       
+       g.gain.setValueAtTime(0, now);
+       g.gain.linearRampToValueAtTime(0.1 / (i + 1), now + 0.01);
+       g.gain.exponentialRampToValueAtTime(0.001, now + 4); 
+
+       osc.connect(g);
+       g.connect(ctx.destination);
+       osc.start(now);
+       osc.stop(now + 4.5);
+    });
+  }, [initAudio, isMusicEnabled]);
+
+  const playStartChime = useCallback(() => {
+    initAudio();
+    if (!ambientContextRef.current) return;
+    const ctx = ambientContextRef.current;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    // Soft chime-like beep (Sine wave with envelope)
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, now); // A4
+    
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.1, now + 0.05); // Soft attack
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6); // Gentle decay
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.start(now);
+    osc.stop(now + 0.7);
+  }, [initAudio]);
+
+  const playRestoreCompleteChime = useCallback(() => {
+      initAudio();
+      if (!ambientContextRef.current) return;
+      const ctx = ambientContextRef.current;
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+
+      // Soft ascending melodic ripple (E-Major: E, G#, B)
+      const notes = [329.63, 415.30, 493.88, 659.25]; // E4, G#4, B4, E5
+      notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now);
+
+          // Staggered start times
+          const startTime = now + (i * 0.15);
+
+          gain.gain.setValueAtTime(0, startTime);
+          gain.gain.linearRampToValueAtTime(0.08, startTime + 0.1); // Gentle attack
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 2.5); // Long soft tail
+
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(startTime);
+          osc.stop(startTime + 2.6);
+      });
+  }, [initAudio]);
 
   const strikeBowl = useCallback(() => {
     if (!ambientContextRef.current || !masterGainRef.current || !isMusicEnabled) return;
@@ -1498,10 +1999,14 @@ const App = () => {
 
     if (Math.abs(distanceX) > Math.abs(distanceY)) {
         if (isLeftSwipe) {
+             // Swipe Left (Next)
              if (viewMode === 'journal') handleModeSwitch('chat');
              else if (viewMode === 'chat') handleModeSwitch('breathe');
+             else if (viewMode === 'breathe') handleModeSwitch('focus');
         } else if (isRightSwipe) {
-             if (viewMode === 'breathe') handleModeSwitch('chat');
+             // Swipe Right (Prev)
+             if (viewMode === 'focus') handleModeSwitch('breathe');
+             else if (viewMode === 'breathe') handleModeSwitch('chat');
              else if (viewMode === 'chat') handleModeSwitch('journal');
         }
     }
@@ -1601,9 +2106,9 @@ const App = () => {
                 </div>
                </div>
             ) : (
-                <div className={`mb-2 md:mb-4 text-[#d4af37] opacity-60 transition-opacity duration-500 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
-                   {viewMode === 'breathe' && <MeditatingFigureIcon className="w-10 h-10 md:w-16 md:h-16" />}
-                   {viewMode === 'journal' && <FireIcon className="w-10 h-10 md:w-16 md:h-16" />}
+                <div className={`mb-2 md:mb-4 text-[#d4af37] opacity-60 transition-opacity duration-500 relative w-10 h-10 md:w-16 md:h-16 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
+                   {/* Unified Morphing Icon for non-chat modes */}
+                   <MorphingHeaderIcon mode={viewMode} />
                 </div>
             )}
             
@@ -1634,6 +2139,15 @@ const App = () => {
                  title="Breathe"
                >
                  <MeditatingFigureIcon className="w-5 h-5" />
+               </button>
+
+                {/* 4. Focus (Far Right) */}
+               <button 
+                 onClick={(e) => { e.stopPropagation(); handleModeSwitch('focus'); }} 
+                 className={`p-2 transition-all duration-300 ${viewMode === 'focus' ? 'text-[#d4af37] scale-110' : 'text-stone-700 hover:text-stone-500'}`}
+                 title="The Focus"
+               >
+                 <HourglassIcon className="w-5 h-5" />
                </button>
             </div>
           </div>
@@ -1693,6 +2207,15 @@ const App = () => {
             )}
             
             {viewMode === 'journal' && <BurnerJournalView isAudioEnabled={isAudioEnabled} />}
+
+            {viewMode === 'focus' && (
+                <PomodoroView 
+                   isActive={viewMode === 'focus' && !isTransitioning}
+                   onTimerComplete={() => strikeZenBell(1.2)} // Work finish = Lower bell
+                   onRestoreComplete={playRestoreCompleteChime} // Break finish = New soft melody
+                   onStart={playStartChime}
+                />
+            )}
         </div>
       </main>
 
