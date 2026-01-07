@@ -414,6 +414,14 @@ const AboutModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
               <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Burner Journal</h3>
               <p className="text-stone-400 italic font-light">"An offering to the fire. Write and release."</p>
            </div>
+           <div>
+              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Pomodoro</h3>
+              <p className="text-stone-400 italic font-light">"Work like the sun, rest like the moon. Finding the center in every hour."</p>
+           </div>
+           <div>
+              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Temple Walls</h3>
+              <p className="text-stone-400 italic font-light">"What is shared in the garden stays in the garden. Private, silent, and secure."</p>
+           </div>
         </div>
 
         {/* Philosophy */}
