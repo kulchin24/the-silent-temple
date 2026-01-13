@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { GoogleGenAI, Modality } from "@google/genai";
@@ -58,20 +59,7 @@ const JOURNAL_ESSAYS = [
 // --- Audio Utilities ---
 const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
 
-// Helper to save/load from localStorage to reduce API calls
-const CACHE_PREFIX = 'zen_audio_cache_';
-const saveAudioToCache = (key: string, base64: string) => {
-    try {
-        localStorage.setItem(CACHE_PREFIX + key, base64);
-    } catch (e) {
-        console.warn('LocalStorage full, audio not cached');
-    }
-};
-const loadAudioFromCache = (key: string): string | null => {
-    return localStorage.getItem(CACHE_PREFIX + key);
-};
-
-function decodeBase64(base64: string) {
+function decode(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
@@ -84,10 +72,10 @@ function decodeBase64(base64: string) {
 async function decodeAudioData(
   data: Uint8Array,
   ctx: AudioContext,
-  sampleRate: number = 24000,
-  numChannels: number = 1
+  sampleRate: number,
+  numChannels: number,
 ): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
+  const dataInt16 = new Int16Array(data.buffer);
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
 
@@ -100,15 +88,7 @@ async function decodeAudioData(
   return buffer;
 }
 
-async function generateSpeech(text: string, ctx: AudioContext, cacheKey?: string): Promise<AudioBuffer> {
-  // Try loading from local cache first if key provided
-  if (cacheKey) {
-      const cachedBase64 = loadAudioFromCache(cacheKey);
-      if (cachedBase64) {
-          return await decodeAudioData(decodeBase64(cachedBase64), ctx);
-      }
-  }
-
+async function generateSpeech(text: string, ctx: AudioContext): Promise<AudioBuffer> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
@@ -121,23 +101,9 @@ async function generateSpeech(text: string, ctx: AudioContext, cacheKey?: string
   const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
   if (!base64Audio) throw new Error("Audio generation failed");
   
-  // Save to cache if key provided
-  if (cacheKey) {
-      saveAudioToCache(cacheKey, base64Audio);
-  }
-
-  return await decodeAudioData(decodeBase64(base64Audio), ctx);
+  const decodedData = decode(base64Audio);
+  return await decodeAudioData(decodedData, ctx, 24000, 1);
 }
-
-const getTimeOfDay = () => {
-  const hour = new Date().getHours();
-  if (hour < 12) return "morning";
-  if (hour < 18) return "afternoon";
-  return "evening";
-};
-
-// --- Global Audio Cache (Module Scope) ---
-const breathingVoiceCache = new Map<string, AudioBuffer>();
 
 // --- Icons & Components ---
 
@@ -210,13 +176,11 @@ const FireIcon = ({ className = "" }: { className?: string }) => (
   </svg>
 );
 
-const MeditatingFigureIcon = ({ className = "" }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <circle cx="12" cy="6" r="3.5" />
-    <path d="M12 8.5V13" />
-    <path d="M5 13c0-2.5 3-4.5 7-4.5s7 2 7 4.5" />
-    <path d="M5 13l3.5 4.5L12 19l3.5-1.5L19 13" />
-    <path d="M12 19v2" />
+const BreathIcon = ({ className = "" }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <circle cx="12" cy="12" r="9" opacity="0.4" />
+    <circle cx="12" cy="12" r="5" />
+    <path d="M12 2v2M12 20v2M2 12h2M20 12h2" opacity="0.3" />
   </svg>
 );
 
@@ -235,37 +199,26 @@ const HourglassIcon = ({ className = "" }: { className?: string }) => (
   </svg>
 );
 
-// Unified Header Icon for "Morphing" effect
+type BreathingPhase = 'inhale' | 'hold' | 'exhale' | 'hold-empty' | 'idle' | 'countdown';
+
 const MorphingHeaderIcon = ({ mode, className = "" }: { mode: 'chat' | 'breathe' | 'journal' | 'focus', className?: string }) => {
-  // Using pathLength="1" allows us to animate strokeDashoffset from 0 (fully drawn) to 1 (fully hidden)
-  // regardless of the actual path geometry. This prevents "glitching" from incorrect dasharray values.
-  
   const isJournal = mode === 'journal';
   const isBreathe = mode === 'breathe';
   const isFocus = mode === 'focus';
-
   const baseClass = "transition-all duration-700 ease-in-out absolute inset-0";
   
   return (
     <div className={`relative ${className}`}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.0" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
-            
-            {/* Journal (Fire) Paths */}
             <g className={`${baseClass} ${isJournal ? 'opacity-100' : 'opacity-0'}`} 
                style={{ strokeDasharray: 1, strokeDashoffset: isJournal ? 0 : 1 }}>
                 <path pathLength="1" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.1.2-2.2.6-3.3a1 1 0 0 0 3 2.8z"/>
             </g>
-
-            {/* Breathe (Lotus/Meditating) Paths */}
             <g className={`${baseClass} ${isBreathe ? 'opacity-100' : 'opacity-0'}`} 
                style={{ strokeDasharray: 1, strokeDashoffset: isBreathe ? 0 : 1 }}>
-                 <circle pathLength="1" cx="12" cy="6" r="3.5" />
-                 <path pathLength="1" d="M12 8.5V13" />
-                 <path pathLength="1" d="M5 13c0-2.5 3-4.5 7-4.5s7 2 7 4.5" />
-                 <path pathLength="1" d="M5 13l3.5 4.5L12 19l3.5-1.5L19 13" />
+                 <circle pathLength="1" cx="12" cy="12" r="9" opacity="0.4" />
+                 <circle pathLength="1" cx="12" cy="12" r="5" />
             </g>
-
-             {/* Focus (Hourglass) Paths */}
              <g className={`${baseClass} ${isFocus ? 'opacity-100' : 'opacity-0'}`} 
                 style={{ strokeDasharray: 1, strokeDashoffset: isFocus ? 0 : 1 }}>
                 <path pathLength="1" d="M5 22h14" />
@@ -278,79 +231,38 @@ const MorphingHeaderIcon = ({ mode, className = "" }: { mode: 'chat' | 'breathe'
   );
 };
 
-const HeaderControls = ({ 
-  isMusic, toggleMusic, 
-  isVoice, toggleVoice, 
-  onAboutClick,
-  hidden 
-}: { 
-  isMusic: boolean, toggleMusic: () => void, 
-  isVoice: boolean, toggleVoice: () => void, 
-  onAboutClick: () => void,
-  hidden?: boolean 
-}) => {
+const HeaderControls = ({ isMusic, toggleMusic, isVoice, toggleVoice, onAboutClick, hidden }: { isMusic: boolean, toggleMusic: () => void, isVoice: boolean, toggleVoice: () => void, onAboutClick: () => void, hidden?: boolean }) => {
   const [showAudioMenu, setShowAudioMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowAudioMenu(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setShowAudioMenu(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   return (
     <div className={`absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 z-50 flex gap-3 items-center transition-all duration-1000 animate-in fade-in zoom-in-95 ${hidden ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-      
-      {/* Audio Control Dropdown */}
       <div className="relative" ref={menuRef}>
-        <button 
-          onClick={(e) => { e.stopPropagation(); setShowAudioMenu(!showAudioMenu); }}
-          className={`p-3 rounded-full border backdrop-blur-md transition-all duration-300 group ${showAudioMenu || isMusic || isVoice ? 'text-[#d4af37] bg-stone-900/40 border-[#d4af37]/30' : 'text-stone-600 bg-transparent border-stone-800/50 hover:text-stone-400 hover:border-stone-700'}`}
-          aria-label="Audio Settings"
-        >
-          {/* Speaker / Sound Wave Icon */}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-             <path d="M11 5L6 9H2v6h4l5 4V5z" />
-             <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-             <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-          </svg>
+        <button onClick={(e) => { e.stopPropagation(); setShowAudioMenu(!showAudioMenu); }} className={`p-3 rounded-full border backdrop-blur-md transition-all duration-300 group ${showAudioMenu || isMusic || isVoice ? 'text-[#d4af37] bg-stone-900/40 border-[#d4af37]/30' : 'text-stone-600 bg-transparent border-stone-800/50 hover:text-stone-400 hover:border-stone-700'}`} aria-label="Audio Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>
         </button>
-
-        {/* Dropdown Menu */}
         {showAudioMenu && (
           <div className="absolute top-full right-0 mt-3 w-48 bg-[#12100e]/95 backdrop-blur-xl border border-stone-800 rounded-2xl shadow-2xl overflow-hidden z-[60] animate-in slide-in-from-top-2 fade-in duration-200">
              <div className="py-2">
-                {/* Music Toggle */}
-                <button 
-                  onClick={(e) => { e.stopPropagation(); toggleMusic(); }}
-                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-stone-800/30 transition-colors group"
-                >
+                <button onClick={(e) => { e.stopPropagation(); toggleMusic(); }} className="w-full px-4 py-3 flex items-center justify-between hover:bg-stone-800/30 transition-colors group">
                    <div className="flex items-center gap-3">
-                      <span className={`text-[#d4af37] transition-opacity ${isMusic ? 'opacity-100' : 'opacity-40'}`}>
-                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-                      </span>
+                      <span className={`text-[#d4af37] transition-opacity ${isMusic ? 'opacity-100' : 'opacity-40'}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>
                       <span className={`text-[10px] uppercase tracking-widest font-serif ${isMusic ? 'text-stone-200' : 'text-stone-500'}`}>Ambience</span>
                    </div>
                    <div className={`w-1.5 h-1.5 rounded-full transition-all ${isMusic ? 'bg-[#d4af37] shadow-[0_0_8px_#d4af37]' : 'bg-stone-800'}`} />
                 </button>
-
                 <div className="h-[1px] bg-stone-800/50 mx-4" />
-
-                {/* Voice Toggle */}
-                <button 
-                  onClick={(e) => { e.stopPropagation(); toggleVoice(); }}
-                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-stone-800/30 transition-colors group"
-                >
+                <button onClick={(e) => { e.stopPropagation(); toggleVoice(); }} className="w-full px-4 py-3 flex items-center justify-between hover:bg-stone-800/30 transition-colors group">
                    <div className="flex items-center gap-3">
-                      <span className={`text-[#d4af37] transition-opacity ${isVoice ? 'opacity-100' : 'opacity-40'}`}>
-                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-                      </span>
+                      <span className={`text-[#d4af37] transition-opacity ${isVoice ? 'opacity-100' : 'opacity-40'}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></span>
                       <span className={`text-[10px] uppercase tracking-widest font-serif ${isVoice ? 'text-stone-200' : 'text-stone-500'}`}>Voice</span>
                    </div>
                    <div className={`w-1.5 h-1.5 rounded-full transition-all ${isVoice ? 'bg-[#d4af37] shadow-[0_0_8px_#d4af37]' : 'bg-stone-800'}`} />
@@ -359,15 +271,8 @@ const HeaderControls = ({
           </div>
         )}
       </div>
-
       <div className="w-[1px] h-8 bg-stone-800/50" />
-
-      {/* Info/About Button - Moved to Rightmost */}
-      <button 
-        onClick={(e) => { e.stopPropagation(); onAboutClick(); }}
-        className="p-3 rounded-full border border-stone-800/50 backdrop-blur-md transition-all duration-300 group text-stone-600 bg-transparent hover:text-[#d4af37] hover:border-[#d4af37]/50"
-        aria-label="About"
-      >
+      <button onClick={(e) => { e.stopPropagation(); onAboutClick(); }} className="p-3 rounded-full border border-stone-800/50 backdrop-blur-md transition-all duration-300 group text-stone-600 bg-transparent hover:text-[#d4af37] hover:border-[#d4af37]/50" aria-label="About">
           <span className="font-serif italic font-bold text-lg leading-none w-4 h-4 flex items-center justify-center">i</span>
       </button>
     </div>
@@ -375,112 +280,38 @@ const HeaderControls = ({
 };
 
 const AboutModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => (
-  <div 
-    className={`fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-xl transition-all duration-500 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
-    onClick={onClose}
-  >
-    <div 
-      className={`relative w-[90%] md:w-[80%] max-w-2xl max-h-[85vh] overflow-y-auto p-8 md:p-12 bg-[#12100e]/80 border border-stone-800/50 shadow-2xl rounded-sm scrollbar-hide transition-all duration-500 ease-out ${isOpen ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'}`}
-      onClick={e => e.stopPropagation()}
-    >
-      <button 
-        onClick={onClose}
-        className="absolute top-6 right-6 text-stone-500 hover:text-[#d4af37] transition-colors"
-      >
-        <XIcon className="w-6 h-6" />
-      </button>
-
+  <div className={`fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-xl transition-all duration-500 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={onClose}>
+    <div className={`relative w-[90%] md:w-[80%] max-w-2xl max-h-[85vh] overflow-y-auto p-8 md:p-12 bg-[#12100e]/80 border border-stone-800/50 shadow-2xl rounded-sm scrollbar-hide transition-all duration-500 ease-out ${isOpen ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'}`} onClick={e => e.stopPropagation()}>
+      <button onClick={onClose} className="absolute top-6 right-6 text-stone-500 hover:text-[#d4af37] transition-colors"><XIcon className="w-6 h-6" /></button>
       <div className="flex flex-col items-center text-center font-serif text-stone-300 space-y-10">
-        
-        {/* Heading */}
-        <div>
-           <div className="w-16 h-16 mx-auto mb-6 text-[#d4af37] opacity-80">
-              <LotusIcon size={64} />
-           </div>
-           <h2 className="text-2xl md:text-3xl text-[#d4af37] tracking-[0.2em] uppercase">The Silent Temple</h2>
-        </div>
-
-        {/* Core Features */}
+        <div><div className="w-16 h-16 mx-auto mb-6 text-[#d4af37] opacity-80"><LotusIcon size={64} /></div><h2 className="text-2xl md:text-3xl text-[#d4af37] tracking-[0.2em] uppercase">The Silent Temple</h2></div>
         <div className="space-y-4 w-full border-b border-stone-800/50 pb-8">
-           <div>
-              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Chat</h3>
-              <p className="text-stone-400 italic font-light">"A mirror for your thoughts. Guided by wisdom."</p>
-           </div>
-           <div>
-              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Focus</h3>
-              <p className="text-stone-400 italic font-light">"Time is a circle. Work and rest in harmony."</p>
-           </div>
-           <div>
-              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Burner Journal</h3>
-              <p className="text-stone-400 italic font-light">"An offering to the fire. Write and release."</p>
-           </div>
-           <div>
-              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Pomodoro</h3>
-              <p className="text-stone-400 italic font-light">"Work like the sun, rest like the moon. Finding the center in every hour."</p>
-           </div>
-           <div>
-              <h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Temple Walls</h3>
-              <p className="text-stone-400 italic font-light">"What is shared in the garden stays in the garden. Private, silent, and secure."</p>
-           </div>
+           <div><h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Chat</h3><p className="text-stone-400 italic font-light">"A mirror for your thoughts. Guided by wisdom."</p></div>
+           <div><h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Focus</h3><p className="text-stone-400 italic font-light">"Time is a circle. Work and rest in harmony."</p></div>
+           <div><h3 className="text-[#d4af37] text-sm uppercase tracking-widest mb-1 opacity-90">The Burner Journal</h3><p className="text-stone-400 italic font-light">"An offering to the fire. Write and release."</p></div>
         </div>
-
-        {/* Philosophy */}
-        <div className="space-y-6 text-sm md:text-base leading-[1.8] font-light text-stone-300/90 text-justify md:text-center">
-            <p>
-              In an era of digital permanence, the mind deserves a space for the ephemeral. Most modern tools are built to hoard thought, creating a heavy archive of past selves that anchors the spirit to the yesterday. Zen Monk exists as a necessary rebellion—an architecture of absence designed to return the individual to the stillness that exists before the noise of the world intervenes.
-            </p>
-            <p>
-              The practice begins with the removal of expectation. Anxiety lives in the 'what-if'—the attachment to a specific outcome or a future that has not yet arrived. By entering this space with no demand for a result, the mind is finally free to let go. True clarity is found not by seeking an answer, but by surrendering the need for one.
-            </p>
-            <p>
-              Growth is found in the shedding of burdens, not the collection of them. This space is a digital cloister where thoughts are given to the fire so that the spirit may remain light, unburdened, and entirely present. It is a reminder that while the world is loud, the center is always still.
-            </p>
-        </div>
-
-        <div className="pt-4 opacity-50">
-             <span className="text-xs uppercase tracking-[0.3em]">Yours</span>
-        </div>
-
+        <div className="space-y-6 text-sm md:text-base leading-[1.8] font-light text-stone-300/90 text-justify md:text-center"><p>In an era of digital permanence, the mind deserves a space for the ephemeral. Zen Monk exists as a necessary rebellion—an architecture of absence designed to return the individual to the stillness that exists before the noise of the world intervenes.</p><p>True clarity is found not by seeking an answer, but by surrendering the need for one. Growth is found in the shedding of burdens, not the collection of them.</p></div>
+        <div className="pt-4 opacity-50"><span className="text-xs uppercase tracking-[0.3em]">Yours</span></div>
       </div>
     </div>
   </div>
 );
 
-const MonkAvatar = ({ isActive, isEntering }: { isActive: boolean, isEntering: boolean }) => {
-  return (
-    <div className={`relative w-32 h-32 md:w-64 md:h-64 mx-auto transition-all duration-[4000ms] ${isEntering ? 'monk-entrance' : ''}`}>
-      <div className={`aura absolute inset-0 rounded-full bg-[#d4af37] blur-[60px] opacity-10`} />
-      <div 
-        className={`absolute inset-0 rounded-full bg-[#d4af37] blur-[100px] transform-gpu transition-all
-          ${isActive 
-            ? 'opacity-20 scale-125 duration-[2500ms] ease-out' 
-            : 'opacity-0 scale-100 duration-300 ease-in'
-          }`}
-      />
-
-      <svg viewBox="0 0 200 200" className="relative z-10 w-full h-full">
-        <path className="monk-breathing" d="M45,170 C45,135 65,110 100,110 C135,110 155,135 155,170 L155,190 L45,190 Z" fill="#1c1917" stroke="#292524" strokeWidth="0.5" />
-        <g>
-          <circle cx="100" cy="75" r="32" fill="#0c0a09" stroke="#1c1917" strokeWidth="0.5" />
-          <g className="transition-all duration-[2000ms]" style={{ opacity: isActive ? 0.8 : 0.2 }}>
-             <circle cx="100" cy="62" r="1.2" fill="#d4af37" opacity="0.4" />
-             <path d="M85,76 Q91,77.5 97,76" fill="none" stroke="#d4af37" strokeWidth="0.6" strokeLinecap="round" />
-             <path d="M103,76 Q109,77.5 115,76" fill="none" stroke="#d4af37" strokeWidth="0.6" strokeLinecap="round" />
-             <path d="M94,90 Q100,92.5 106,90" fill="none" stroke="#d4af37" strokeWidth="0.5" strokeLinecap="round" />
-             <circle cx="86" cy="86" r="3" fill="#d4af37" opacity={isActive ? 0.05 : 0} />
-             <circle cx="114" cy="86" r="3" fill="#d4af37" opacity={isActive ? 0.05 : 0} />
-          </g>
-        </g>
-        <path d="M88,130 Q100,126 112,130" fill="none" stroke="#1c1917" strokeWidth="0.8" opacity="0.1" />
-      </svg>
-    </div>
-  );
-};
+const MonkAvatar = ({ isActive, isEntering }: { isActive: boolean, isEntering: boolean }) => (
+  <div className={`relative w-32 h-32 md:w-64 md:h-64 mx-auto transition-all duration-[4000ms] ${isEntering ? 'monk-entrance' : ''}`}>
+    <div className={`aura absolute inset-0 rounded-full bg-[#d4af37] blur-[60px] opacity-10`} />
+    <div className={`absolute inset-0 rounded-full bg-[#d4af37] blur-[100px] transform-gpu transition-all ${isActive ? 'opacity-20 scale-125 duration-[2500ms] ease-out' : 'opacity-0 scale-100 duration-300 ease-in'}`} />
+    <svg viewBox="0 0 200 200" className="relative z-10 w-full h-full">
+      <path className="monk-breathing" d="M45,170 C45,135 65,110 100,110 C135,110 155,135 155,170 L155,190 L45,190 Z" fill="#1c1917" stroke="#292524" strokeWidth="0.5" />
+      <g><circle cx="100" cy="75" r="32" fill="#0c0a09" stroke="#1c1917" strokeWidth="0.5" /><g className="transition-all duration-[2000ms]" style={{ opacity: isActive ? 0.8 : 0.2 }}><circle cx="100" cy="62" r="1.2" fill="#d4af37" opacity="0.4" /><path d="M85,76 Q91,77.5 97,76" fill="none" stroke="#d4af37" strokeWidth="0.6" strokeLinecap="round" /><path d="M103,76 Q109,77.5 115,76" fill="none" stroke="#d4af37" strokeWidth="0.6" strokeLinecap="round" /><path d="M94,90 Q100,92.5 106,90" fill="none" stroke="#d4af37" strokeWidth="0.5" strokeLinecap="round" /><circle cx="86" cy="86" r="3" fill="#d4af37" opacity={isActive ? 0.05 : 0} /><circle cx="114" cy="86" r="3" fill="#d4af37" opacity={isActive ? 0.05 : 0} /></g></g>
+      <path d="M88,130 Q100,126 112,130" fill="none" stroke="#1c1917" strokeWidth="0.8" opacity="0.1" />
+    </svg>
+  </div>
+);
 
 const TypewriterText = ({ text, isStreaming, onDone }: { text: string; isStreaming?: boolean; onDone?: () => void }) => {
   const [displayedText, setDisplayedText] = useState("");
   const [index, setIndex] = useState(0);
-
   useEffect(() => {
     if (index < text.length) {
       const timeout = setTimeout(() => {
@@ -488,99 +319,51 @@ const TypewriterText = ({ text, isStreaming, onDone }: { text: string; isStreami
         setIndex(prev => prev + 1);
       }, 30);
       return () => clearTimeout(timeout);
-    } else {
-        if (!isStreaming && onDone) {
-            onDone();
-        }
-    }
+    } else if (!isStreaming && onDone) onDone();
   }, [index, text, isStreaming, onDone]);
-
-  return (
-    <span className={index < text.length ? "typewriter-cursor" : ""}>
-      <FormattedText text={displayedText} />
-    </span>
-  );
+  return <span className={index < text.length ? "typewriter-cursor" : ""}><FormattedText text={displayedText} /></span>;
 };
 
 // --- View Components ---
 
-const PomodoroView = ({ 
-  isActive, 
-  onTimerComplete, 
-  onRestoreComplete,
-  onStart
-}: { 
-  isActive: boolean, 
-  onTimerComplete: () => void,
-  onRestoreComplete: () => void,
-  onStart: () => void
-}) => {
+const PomodoroView = ({ isActive, onTimerComplete, onRestoreComplete, onStart }: { isActive: boolean, onTimerComplete: () => void, onRestoreComplete: () => void, onStart: () => void }) => {
   const [mode, setMode] = useState<'work' | 'break'>('work');
   const [isRunning, setIsRunning] = useState(false);
-  
-  // Settings
+  const [showPauseMenu, setShowPauseMenu] = useState(false);
   const [workDuration, setWorkDuration] = useState(25);
   const [breakDuration, setBreakDuration] = useState(5);
-  const [iterations, setIterations] = useState(4); // Default 4 cycles
-  
-  // Runtime State
+  const [iterations, setIterations] = useState(4); 
   const [currentIteration, setCurrentIteration] = useState(1);
   const [timeLeft, setTimeLeft] = useState(workDuration * 60);
   const totalTimeRef = useRef(workDuration * 60);
-
-  // Calculate total predicted time based on settings
   const totalDurationMins = iterations * (workDuration + breakDuration);
   const totalHours = Math.floor(totalDurationMins / 60);
   const totalMins = totalDurationMins % 60;
   const totalTimeString = totalHours > 0 ? `${totalHours}h ${totalMins}m` : `${totalMins}m`;
 
-  // Sync settings when not running
   useEffect(() => {
-    if (!isRunning) {
+    if (!isRunning && !showPauseMenu) {
        const duration = mode === 'work' ? workDuration : breakDuration;
        setTimeLeft(duration * 60);
        totalTimeRef.current = duration * 60;
-       // Reset iteration count if we stop
        setCurrentIteration(1);
        setMode('work');
     }
-  }, [workDuration, breakDuration, iterations, isRunning]);
+  }, [workDuration, breakDuration, iterations, isRunning, showPauseMenu]);
 
-  useEffect(() => {
-    if (!isActive) {
-        setIsRunning(false); // Auto-pause if we leave the view
-    }
-  }, [isActive]);
+  useEffect(() => { if (!isActive) { setIsRunning(false); setShowPauseMenu(false); } }, [isActive]);
 
   useEffect(() => {
     let interval: number;
-    if (isRunning && isActive) {
+    if (isRunning && isActive && !showPauseMenu) {
       interval = window.setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
-            // Cycle complete
-            if (mode === 'work') {
-               onTimerComplete(); // Low bell
-               setMode('break');
-               totalTimeRef.current = breakDuration * 60;
-               return breakDuration * 60; // Immediately start break
-            } else {
-               onRestoreComplete(); // Soft melody
-               
-               if (currentIteration < iterations) {
-                   // Move to next iteration
-                   setCurrentIteration(c => c + 1);
-                   setMode('work');
-                   totalTimeRef.current = workDuration * 60;
-                   return workDuration * 60; // Immediately start work
-               } else {
-                   // All iterations done
-                   setIsRunning(false);
-                   setMode('work');
-                   setCurrentIteration(1);
-                   totalTimeRef.current = workDuration * 60;
-                   return workDuration * 60;
-               }
+            if (mode === 'work') { onTimerComplete(); setMode('break'); totalTimeRef.current = breakDuration * 60; return breakDuration * 60; }
+            else {
+               onRestoreComplete();
+               if (currentIteration < iterations) { setCurrentIteration(c => c + 1); setMode('work'); totalTimeRef.current = workDuration * 60; return workDuration * 60; }
+               else { setIsRunning(false); setMode('work'); setCurrentIteration(1); totalTimeRef.current = workDuration * 60; return workDuration * 60; }
             }
           }
           return prev - 1;
@@ -588,533 +371,191 @@ const PomodoroView = ({
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning, isActive, mode, iterations, currentIteration, workDuration, breakDuration, onTimerComplete, onRestoreComplete]);
+  }, [isRunning, isActive, mode, iterations, currentIteration, workDuration, breakDuration, onTimerComplete, onRestoreComplete, showPauseMenu]);
 
-  const toggleTimer = () => {
-    if (!isRunning) {
-      onStart();
-    }
-    setIsRunning(!isRunning);
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  // Calculate Progress (0 to 1, where 1 is full/done)
+  const toggleTimer = () => { if (!isRunning) { onStart(); setIsRunning(true); } else setShowPauseMenu(true); };
+  const handleReset = () => { setIsRunning(false); setShowPauseMenu(false); setTimeLeft((mode === 'work' ? workDuration : breakDuration) * 60); setCurrentIteration(1); };
+  const formatTime = (seconds: number) => { const mins = Math.floor(seconds / 60); const secs = seconds % 60; return `${mins}:${secs.toString().padStart(2, '0')}`; };
   const progress = Math.max(0, Math.min(1, (totalTimeRef.current - timeLeft) / totalTimeRef.current));
 
   return (
     <div className="flex flex-col items-center justify-center h-full w-full relative animate-in fade-in duration-1000">
-      
-      {/* Dynamic Style for Wave Animation */}
-      <style>{`
-        @keyframes drift {
-          from { transform: translateX(0); }
-          to { transform: translateX(-200px); }
-        }
-      `}</style>
-
-      {/* Main Interactive Circle */}
-      <div 
-        className="relative w-72 h-72 md:w-96 md:h-96 cursor-pointer group select-none tap-highlight-transparent"
-        onClick={toggleTimer}
-      >
-         {/* The Visual */}
+      <style>{`@keyframes drift { from { transform: translateX(0); } to { transform: translateX(-200px); } }`}</style>
+      <div className={`relative w-72 h-72 md:w-96 md:h-96 cursor-pointer group select-none tap-highlight-transparent transition-transform duration-500 ${showPauseMenu ? 'scale-90 blur-sm opacity-50' : 'scale-100'}`} onClick={toggleTimer}>
          <svg viewBox="0 0 200 200" className="w-full h-full drop-shadow-[0_0_15px_rgba(0,0,0,0.5)]">
-            <defs>
-               <clipPath id="liquidMask">
-                  {/* Circle Mask for Liquid */}
-                  <circle cx="100" cy="100" r="90" />
-               </clipPath>
-            </defs>
-            
-            {/* Liquid Layer */}
-            <g clipPath="url(#liquidMask)">
-                {/* Background Void */}
-                <circle cx="100" cy="100" r="100" fill="#0c0a09" /> 
-                
-                {/* Rising Liquid Group */}
-                <g style={{ 
-                    transform: `translateY(${200 * (1 - progress)}px)`,
-                    transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)'
-                }}>
-                    {/* Back Wave */}
-                    <path 
-                      d="M0,10 Q50,-5 100,10 T200,10 T300,10 T400,10 V300 H0 Z" 
-                      fill={mode === 'work' ? "#854d0e" : "#44403c"} 
-                      opacity="0.4"
-                      style={{ animation: 'drift 10s infinite linear' }}
-                    />
-                    
-                    {/* Front Wave */}
-                    <path 
-                      d="M0,5 Q50,15 100,5 T200,5 T300,5 T400,5 V300 H0 Z" 
-                      fill={mode === 'work' ? "#d4af37" : "#a8a29e"} 
-                      opacity="0.9"
-                      style={{ animation: 'drift 6s infinite linear reverse' }}
-                    />
-                </g>
-            </g>
-
-            {/* Regular Clean Circle Ring */}
-            <circle 
-              cx="100" 
-              cy="100" 
-              r="90" 
-              fill="none" 
-              stroke="#292524" 
-              strokeWidth="4" 
-            />
-            {/* Inner thin accent ring */}
-            <circle 
-              cx="100" 
-              cy="100" 
-              r="84" 
-              fill="none" 
-              stroke={mode === 'work' ? "#d4af37" : "#a8a29e"} 
-              strokeWidth="0.5" 
-              opacity="0.3"
-            />
+            <clipPath id="liquidMask"><circle cx="100" cy="100" r="90" /></clipPath>
+            <g clipPath="url(#liquidMask)"><circle cx="100" cy="100" r="100" fill="#0c0a09" /><g style={{ transform: `translateY(${200 * (1 - progress)}px)`, transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)' }}><path d="M0,10 Q50,-5 100,10 T200,10 T300,10 T400,10 V300 H0 Z" fill={mode === 'work' ? "#854d0e" : "#44403c"} opacity="0.4" style={{ animation: 'drift 10s infinite linear' }} /><path d="M0,5 Q50,15 100,5 T200,5 T300,5 T400,5 V300 H0 Z" fill={mode === 'work' ? "#d4af37" : "#a8a29e"} opacity="0.9" style={{ animation: 'drift 6s infinite linear reverse' }} /></g></g>
+            <circle cx="100" cy="100" r="90" fill="none" stroke="#292524" strokeWidth="4" /><circle cx="100" cy="100" r="84" fill="none" stroke={mode === 'work' ? "#d4af37" : "#a8a29e"} strokeWidth="0.5" opacity="0.3" />
          </svg>
-
-         {/* Overlay Info */}
-         <div className={`absolute inset-0 flex flex-col items-center justify-center transition-all duration-700`}>
-             <div className="flex flex-col items-center">
-                 <span className={`text-[10px] uppercase tracking-[0.4em] mb-4 transition-opacity duration-300 ${mode === 'work' ? 'text-[#d4af37]' : 'text-stone-400'} ${isRunning ? 'opacity-100' : 'opacity-0'}`}>
-                    {mode === 'work' ? 'Focus' : 'Restore'}
-                 </span>
-                 
-                 {/* Time Display - Fades out when running to reduce anxiety, reveals on hover */}
-                 <span className={`font-serif text-6xl text-stone-200 tracking-wider transition-all duration-700 ${isRunning ? 'opacity-0 group-hover:opacity-100 blur-sm group-hover:blur-0 scale-95' : 'opacity-100 scale-100 blur-0'}`}>
-                    {formatTime(timeLeft)}
-                 </span>
-
-                 {/* Settings / Status Toggle */}
-                 <div className="h-6 mt-6 relative w-full flex justify-center">
-                     {/* Start Prompt (Hidden when running) */}
-                     <span className={`absolute text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-[#d4af37] transition-all duration-500 ${isRunning ? 'opacity-0 translate-y-2' : 'opacity-100 translate-y-0'}`}>
-                        Tap to Begin
-                     </span>
-                     
-                     {/* Cycle Count (Visible when running) */}
-                     <span className={`absolute text-[9px] uppercase tracking-[0.2em] text-stone-500 transition-all duration-500 ${isRunning ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
-                        Cycle {currentIteration} / {iterations}
-                     </span>
-                 </div>
-             </div>
-         </div>
+         <div className="absolute inset-0 flex flex-col items-center justify-center"><div className="flex flex-col items-center"><span className={`text-[10px] uppercase tracking-[0.4em] mb-4 transition-opacity duration-300 ${mode === 'work' ? 'text-[#d4af37]' : 'text-stone-400'} ${isRunning ? 'opacity-100' : 'opacity-0'}`}>{mode === 'work' ? 'Focus' : 'Restore'}</span><span className={`font-serif text-6xl text-stone-200 tracking-wider transition-all duration-700 ${isRunning ? 'opacity-0 group-hover:opacity-100 blur-sm group-hover:blur-0 scale-95' : 'opacity-100 scale-100 blur-0'}`}>{formatTime(timeLeft)}</span><div className="h-6 mt-6 relative w-full flex justify-center"><span className={`absolute text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-[#d4af37] transition-all duration-500 ${isRunning ? 'opacity-0 translate-y-2' : 'opacity-100 translate-y-0'}`}>Tap to Begin</span><span className={`absolute text-[9px] uppercase tracking-[0.2em] text-stone-500 transition-all duration-500 ${isRunning ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>Cycle {currentIteration} / {iterations}</span></div></div></div>
       </div>
-
-      {/* Settings Panel (Only when paused) */}
-      <div className={`mt-8 md:mt-12 flex flex-col gap-8 transition-all duration-700 ${isRunning ? 'opacity-0 translate-y-8 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
-           
-           {/* Row 1: Durations */}
-           <div className="flex items-center gap-12">
-               <div className="flex flex-col items-center gap-3 group">
-                  <span className="text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-[#d4af37] transition-colors">Focus Time</span>
-                  <div className="flex items-center gap-4">
-                     <button onClick={(e) => { e.stopPropagation(); setWorkDuration(Math.max(1, workDuration - 5)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">-</button>
-                     <span className="font-serif text-xl text-stone-300 w-8 text-center">{workDuration}</span>
-                     <button onClick={(e) => { e.stopPropagation(); setWorkDuration(Math.min(60, workDuration + 5)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">+</button>
-                  </div>
-               </div>
-               
-               <div className="w-[1px] h-10 bg-stone-800" />
-               
-               <div className="flex flex-col items-center gap-3 group">
-                  <span className="text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-stone-400 transition-colors">Restore Time</span>
-                  <div className="flex items-center gap-4">
-                     <button onClick={(e) => { e.stopPropagation(); setBreakDuration(Math.max(1, breakDuration - 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-400 hover:text-stone-300 transition-all">-</button>
-                     <span className="font-serif text-xl text-stone-400 w-8 text-center">{breakDuration}</span>
-                     <button onClick={(e) => { e.stopPropagation(); setBreakDuration(Math.min(30, breakDuration + 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-400 hover:text-stone-300 transition-all">+</button>
-                  </div>
-               </div>
-           </div>
-
-           {/* Row 2: Iterations & Total Time */}
-           <div className="flex items-center justify-center gap-12 pt-4 border-t border-stone-800/30">
-               <div className="flex flex-col items-center gap-3 group">
-                  <span className="text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-stone-300 transition-colors">Cycles</span>
-                  <div className="flex items-center gap-4">
-                     <button onClick={(e) => { e.stopPropagation(); setIterations(Math.max(1, iterations - 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-500 hover:text-stone-300 transition-all">-</button>
-                     <span className="font-serif text-xl text-stone-300 w-8 text-center">{iterations}</span>
-                     <button onClick={(e) => { e.stopPropagation(); setIterations(Math.min(10, iterations + 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-500 hover:text-stone-300 transition-all">+</button>
-                  </div>
-               </div>
-               
-               <div className="flex flex-col items-center gap-2">
-                   <span className="text-[9px] uppercase tracking-[0.2em] text-stone-600">Total Duration</span>
-                   <span className="font-serif text-lg text-[#d4af37] tracking-wide">{totalTimeString}</span>
-               </div>
-           </div>
-
-      </div>
+      {showPauseMenu && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center animate-in fade-in zoom-in-95 duration-500"><div className="bg-[#12100e]/90 backdrop-blur-2xl border border-stone-800 rounded-full w-64 h-64 md:w-80 md:h-80 flex flex-col items-center justify-center shadow-2xl"><h2 className="text-[#d4af37] font-serif text-xl tracking-[0.3em] uppercase mb-8 opacity-90">Stillness</h2><div className="flex flex-col gap-4 w-full px-12"><button onClick={(e) => { e.stopPropagation(); setShowPauseMenu(false); }} className="w-full py-3 border border-[#d4af37]/40 text-[#d4af37] text-[10px] uppercase tracking-[0.3em] rounded-full hover:bg-[#d4af37]/10 transition-all">Continue</button><button onClick={(e) => { e.stopPropagation(); handleReset(); }} className="w-full py-3 border border-stone-800 text-stone-500 text-[10px] uppercase tracking-[0.3em] rounded-full hover:text-stone-300 transition-all">Reset Session</button></div></div></div>
+      )}
+      <div className={`mt-8 md:mt-12 flex flex-col gap-8 transition-all duration-700 ${isRunning || showPauseMenu ? 'opacity-0 translate-y-8 pointer-events-none' : 'opacity-100 translate-y-0'}`}><div className="flex items-center gap-12"><div className="flex flex-col items-center gap-3 group"><span className="text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-[#d4af37] transition-colors">Focus Time</span><div className="flex items-center gap-4"><button onClick={(e) => { e.stopPropagation(); setWorkDuration(Math.max(1, workDuration - 5)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">-</button><span className="font-serif text-xl text-stone-300 w-8 text-center">{workDuration}</span><button onClick={(e) => { e.stopPropagation(); setWorkDuration(Math.min(60, workDuration + 5)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">+</button></div></div><div className="w-[1px] h-10 bg-stone-800" /><div className="flex flex-col items-center gap-3 group"><span className="text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-stone-400 transition-colors">Restore Time</span><div className="flex items-center gap-4"><button onClick={(e) => { e.stopPropagation(); setBreakDuration(Math.max(1, breakDuration - 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-400 hover:text-stone-300 transition-all">-</button><span className="font-serif text-xl text-stone-400 w-8 text-center">{breakDuration}</span><button onClick={(e) => { e.stopPropagation(); setBreakDuration(Math.min(30, breakDuration + 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-400 hover:text-stone-300 transition-all">+</button></div></div></div><div className="flex items-center justify-center gap-12 pt-4 border-t border-stone-800/30"><div className="flex flex-col items-center gap-3 group"><span className="text-[9px] uppercase tracking-[0.2em] text-stone-600 group-hover:text-stone-300 transition-colors">Cycles</span><div className="flex items-center gap-4"><button onClick={(e) => { e.stopPropagation(); setIterations(Math.max(1, iterations - 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-500 hover:text-stone-300 transition-all">-</button><span className="font-serif text-xl text-stone-300 w-8 text-center">{iterations}</span><button onClick={(e) => { e.stopPropagation(); setIterations(Math.min(10, iterations + 1)) }} className="w-8 h-8 rounded-full border border-stone-800 flex items-center justify-center text-stone-500 hover:border-stone-500 hover:text-stone-300 transition-all">+</button></div></div><div className="flex flex-col items-center gap-2"><span className="text-[9px] uppercase tracking-[0.2em] text-stone-600">Total Duration</span><span className="font-serif text-lg text-[#d4af37] tracking-wide">{totalTimeString}</span></div></div></div>
     </div>
   );
 };
 
-const BreathingView = ({ isActive, setBreathingAudioActive, onImmersiveChange }: { isActive: boolean, setBreathingAudioActive: (active: boolean) => void, onImmersiveChange: (immersive: boolean) => void }) => {
-  const [technique, setTechnique] = useState<'calm' | 'balance'>('calm');
-  const [phase, setPhase] = useState<'inhale' | 'hold' | 'exhale' | 'idle'>('idle');
-  const [guideState, setGuideState] = useState<'idle' | 'preparing' | 'three' | 'two' | 'one' | 'breathing'>('idle');
-  const [text, setText] = useState("Preparing Wisdom...");
+const BreathingView = ({ isActive, onImmersiveChange, onPhaseChange }: { isActive: boolean, onImmersiveChange: (immersive: boolean) => void, onPhaseChange: (phase: BreathingPhase) => void }) => {
+  const [technique, setTechnique] = useState<'relax' | 'box' | 'equal'>('relax');
+  const [phase, setPhase] = useState<BreathingPhase>('idle');
   const [isRunning, setIsRunning] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [showInfo, setShowInfo] = useState(false);
-  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
-  
-  // Audio state
-  const [isAudioReady, setIsAudioReady] = useState(false);
-  const currentVoiceSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const [timerText, setTimerText] = useState("");
 
-  // Notify parent about immersive state changes
+  const techniques = {
+    relax: { inhale: 4, hold: 7, exhale: 8, holdEmpty: 0, label: "Relax (4-7-8)", description: "For deep sleep & anxiety" },
+    box: { inhale: 4, hold: 4, exhale: 4, holdEmpty: 4, label: "Focus (Box)", description: "For balance & concentration" },
+    equal: { inhale: 4, hold: 0, exhale: 4, holdEmpty: 0, label: "Calm (4-4)", description: "Simple rhythmic grounding" }
+  };
+
+  useEffect(() => { onImmersiveChange(isRunning || countdown !== null); }, [isRunning, countdown, onImmersiveChange]);
+
   useEffect(() => {
-    onImmersiveChange(guideState !== 'idle');
-  }, [guideState, onImmersiveChange]);
-
-  // Dynamic Script Generation
-  useEffect(() => {
-    if (!isActive) return;
-
-    const generateDynamicIntro = async () => {
-        setIsGeneratingScript(true);
-        setIsAudioReady(false);
-        setText("Preparing Wisdom...");
-        try {
-            const timeOfDay = getTimeOfDay();
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            
-            // 1. Generate Text
-            const prompt = `You are a Zen master. It is ${timeOfDay}.
-            Generate a very brief, soothing single-sentence introduction for a breathing exercise.
-            The user is about to do the "${technique === 'calm' ? '4-7-8 Relax' : 'Box Balance'}" technique.
-            Focus on ${timeOfDay === 'morning' ? 'awakening/clarity' : timeOfDay === 'evening' ? 'release/rest' : 'centering'}.
-            Do not give instructions like 'inhale now', just set the mood. Max 20 words.
-            You MUST end with the phrase: "Tap the circle to start the exercise."`;
-            
-            const textResponse = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: prompt,
-            });
-            const introText = textResponse.text || "Let us find stillness together. Tap the circle to start the exercise.";
-
-            // 2. Generate Audio (TTS)
-            const audioBuffer = await generateSpeech(introText, audioContext);
-            breathingVoiceCache.set('current_intro', audioBuffer);
-            
-            setIsAudioReady(true);
-            setText("Begin Exercise");
-        } catch (e) {
-            console.error("Failed to generate breathing script", e);
-            // Fallback
-            setIsAudioReady(true);
-            setText("Begin Exercise");
-        } finally {
-            setIsGeneratingScript(false);
-        }
-    };
-    
-    // Only generate if we haven't already for this session/technique combo, or just generate every time we enter the view?
-    // User requested "generate a different script every time".
-    generateDynamicIntro();
-
-  }, [isActive, technique]); // Re-run when view becomes active or technique changes
-
-  const playVoice = (key: string, onEnded?: () => void) => {
-    const ctx = audioContext;
-    // For the dynamic intro, we use the specific key we saved to
-    const buffer = key === 'prepare' ? breathingVoiceCache.get('current_intro') : breathingVoiceCache.get(key);
-    
-    if (!buffer) {
-        console.warn("Audio cache miss", key);
-        if (onEnded) onEnded();
+    if (!isRunning) {
+        setPhase('idle');
+        onPhaseChange('idle');
         return;
     }
-    
-    // Stop previous voice if overlapping
-    if (currentVoiceSourceRef.current) {
-        try { currentVoiceSourceRef.current.stop(); } catch(e) {}
-    }
+    let timer: number;
+    const startCycle = () => {
+      const { inhale, hold, exhale, holdEmpty } = techniques[technique];
+      const runPhase = (p: BreathingPhase, duration: number, next: () => void) => {
+        if (!isRunning) return;
+        setPhase(p);
+        onPhaseChange(p);
+        let count = duration;
+        setTimerText(count.toString());
+        timer = window.setInterval(() => {
+          count--;
+          if (count <= 0) { clearInterval(timer); next(); }
+          else setTimerText(count.toString());
+        }, 1000);
+      };
 
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    const gain = ctx.createGain();
-    gain.gain.value = 1.0; 
-    source.connect(gain).connect(ctx.destination);
-    if (onEnded) source.onended = onEnded;
-    source.start();
-    currentVoiceSourceRef.current = source;
-  };
-  
-  const playBeep = () => {
-      const ctx = audioContext;
-      if (ctx.state === 'suspended') ctx.resume();
-      
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      
-      // Soft chime-like beep (Sine wave with envelope)
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(440, ctx.currentTime); // A4
-      
-      gain.gain.setValueAtTime(0, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.05); // Soft attack
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6); // Gentle decay
-      
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.7);
-  };
-
-  useEffect(() => {
-    if (!isActive) {
-      setIsRunning(false);
-      setGuideState('idle');
-      setPhase('idle');
-      // setText("Begin Practice"); // Handled in generation effect
-      setBreathingAudioActive(false);
-      if (currentVoiceSourceRef.current) {
-        try { currentVoiceSourceRef.current.stop(); } catch(e) {}
-      }
-      return;
-    }
-  }, [isActive]);
-
-  useEffect(() => {
-    let timeout: number;
-
-    const runCycle = () => {
-      // Inhale
-      setPhase('inhale');
-      setText("Inhale");
-      
-      const inhaleTime = technique === 'calm' ? 4000 : 4000;
-      
-      timeout = window.setTimeout(() => {
-        // Hold
-        setPhase('hold');
-        setText("Hold");
-        
-        const holdTime = technique === 'calm' ? 7000 : 4000;
-        
-        timeout = window.setTimeout(() => {
-          // Exhale
-          setPhase('exhale');
-          setText("Exhale");
-          
-          const exhaleTime = technique === 'calm' ? 8000 : 4000;
-          
-          timeout = window.setTimeout(() => {
-             // For Balance, there is a hold after exhale
-             if (technique === 'balance') {
-                 setPhase('hold');
-                 setText("Hold");
-                 timeout = window.setTimeout(() => {
-                     if (isRunning) runCycle();
-                 }, 4000);
-             } else {
-                 if (isRunning) runCycle();
-             }
-          }, exhaleTime);
-        }, holdTime);
-      }, inhaleTime);
+      runPhase('inhale', inhale, () => {
+        if (hold > 0) runPhase('hold', hold, () => runPhase('exhale', exhale, () => holdEmpty > 0 ? runPhase('hold-empty', holdEmpty, startCycle) : startCycle()));
+        else runPhase('exhale', exhale, startCycle);
+      });
     };
+    startCycle();
+    return () => clearInterval(timer);
+  }, [isRunning, technique]);
 
+  const toggle = () => {
     if (isRunning) {
-      // Begin the loop
-      runCycle();
+      setIsRunning(false);
+      setCountdown(null);
     } else {
-      setPhase('idle');
-      // If we are not running but guideState is idle, reset text
-      if (guideState === 'idle' && isAudioReady) {
-          setText("Begin Exercise");
-          setBreathingAudioActive(false);
-      }
-    }
-
-    return () => clearTimeout(timeout);
-  }, [isRunning, technique, isAudioReady]);
-
-  const toggleBreathing = () => {
-    if (!isAudioReady) return; // Prevent start if audio not loaded
-    
-    // Locked during countdown
-    if (['three', 'two', 'one'].includes(guideState)) return; 
-
-    // Ensure AudioContext is running on user interaction
-    if (audioContext.state === 'suspended') {
-        audioContext.resume();
-    }
-
-    if (isRunning || guideState === 'breathing') {
-        // STOP
-        setIsRunning(false);
-        setGuideState('idle');
-        setBreathingAudioActive(false);
-        if (currentVoiceSourceRef.current) {
-            try { currentVoiceSourceRef.current.stop(); } catch(e) {}
-        }
-    } else {
-        // START FLOW
-        if (guideState === 'idle') {
-            setBreathingAudioActive(true);
-            setGuideState('preparing');
-            setText("Prepare");
-            playVoice('prepare');
-        } else if (guideState === 'preparing') {
-             // START COUNTDOWN
-             // Stop prep voice if still playing
-             if (currentVoiceSourceRef.current) {
-                 try { currentVoiceSourceRef.current.stop(); } catch(e) {}
-             }
-             
-             setGuideState('three');
-             setText("3");
-             playBeep();
-             setTimeout(() => {
-                setGuideState('two');
-                setText("2");
-                playBeep();
-                setTimeout(() => {
-                    setGuideState('one');
-                    setText("1");
-                    playBeep();
-                    setTimeout(() => {
-                        setGuideState('breathing');
-                        setIsRunning(true);
-                    }, 1000);
-                }, 1000);
-             }, 1000);
-        }
+      if (countdown !== null) return;
+      setCountdown(3);
+      setPhase('countdown');
+      onPhaseChange('countdown');
+      const int = window.setInterval(() => {
+        setCountdown(prev => {
+          if (prev === 1) {
+            clearInterval(int);
+            setIsRunning(true);
+            return null;
+          }
+          return (prev || 0) - 1;
+        });
+      }, 1000);
     }
   };
 
-  // Determine if we are in an immersive state where controls should fade
-  const isImmersive = guideState !== 'idle';
-  // Determine if the visual circle should vanish (during countdown)
-  const isCountdown = ['three', 'two', 'one'].includes(guideState);
+  const getPhaseText = () => {
+    if (countdown !== null) return "Prepare to Expand";
+    switch (phase) {
+      case 'inhale': return "Inhale through nose";
+      case 'hold': return "Find the gap";
+      case 'exhale': return "Surrender the air";
+      case 'hold-empty': return "Stillness";
+      default: return "";
+    }
+  };
 
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full relative">
-      
-      {/* Technique Selector - Fades out in immersive mode */}
-      <div className={`flex items-center gap-4 mb-4 md:mb-8 absolute top-0 md:relative z-10 transition-opacity duration-1000 ${isImmersive ? 'opacity-0 pointer-events-none hidden' : 'opacity-100'}`}>
-         <button 
-           onClick={() => !isRunning && setTechnique('calm')}
-           disabled={isRunning || isGeneratingScript}
-           className={`px-4 py-2 rounded-full border text-xs tracking-widest uppercase transition-all ${technique === 'calm' ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-stone-800 text-stone-600 hover:text-stone-400'}`}
-         >
-            Relax (4-7-8)
-         </button>
-         <button 
-           onClick={() => !isRunning && setTechnique('balance')}
-           disabled={isRunning || isGeneratingScript}
-           className={`px-4 py-2 rounded-full border text-xs tracking-widest uppercase transition-all ${technique === 'balance' ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-stone-800 text-stone-600 hover:text-stone-400'}`}
-         >
-            Balance (Box)
-         </button>
-
-         {/* Info Button */}
-         <button 
-           onClick={() => setShowInfo(true)}
-           className="w-6 h-6 rounded-full border border-stone-800 text-stone-600 flex items-center justify-center hover:border-[#d4af37] hover:text-[#d4af37] transition-colors"
-           aria-label="Breathing Info"
-         >
-           <span className="text-[10px] font-serif italic">i</span>
-         </button>
+    <div className="flex flex-col items-center h-full w-full relative">
+      {/* Technique Selectors */}
+      <div className={`mt-4 flex items-center justify-center gap-4 transition-all duration-1000 z-50 ${isRunning || countdown !== null ? 'opacity-0 pointer-events-none -translate-y-8' : 'opacity-100'}`} onClick={(e) => e.stopPropagation()}>
+         {Object.keys(techniques).map((k) => (
+           <button 
+             key={k} 
+             onClick={(e) => { e.stopPropagation(); setTechnique(k as any); }} 
+             className={`px-4 py-2 rounded-full border text-[10px] uppercase tracking-widest transition-all ${technique === k ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-stone-800 text-stone-600 hover:text-stone-400'}`}
+           >
+              {techniques[k as keyof typeof techniques].label.split(' ')[0]}
+           </button>
+         ))}
+         <button onClick={(e) => { e.stopPropagation(); setShowInfo(true); }} className="w-8 h-8 rounded-full border border-stone-800 text-stone-600 flex items-center justify-center hover:text-[#d4af37] transition-colors"><span className="text-[10px] italic font-bold">i</span></button>
       </div>
 
-      <div 
-        className={`relative group flex-grow flex items-center justify-center w-full ${isAudioReady ? 'cursor-pointer' : 'cursor-wait opacity-50'}`}
-        onClick={toggleBreathing}
-      >
-        {/* Mandala Visuals - Fades out during countdown */}
-        <div className={`relative w-56 h-56 md:w-80 md:h-80 flex items-center justify-center transition-all duration-700 ease-in-out ${isCountdown ? 'opacity-0 scale-50' : 'opacity-100 scale-100'}`}>
-            
-            {/* Outer Glow */}
-            <div className={`absolute inset-0 rounded-full bg-[#d4af37] blur-[60px] transition-all duration-[4000ms] ease-in-out
-               ${phase === 'inhale' ? 'scale-125 opacity-30' : 
-                 phase === 'hold' ? 'scale-110 opacity-20' : 
-                 phase === 'exhale' ? 'scale-75 opacity-10' : 'scale-90 opacity-5'}`} 
+      {/* Main Breathing Area */}
+      <div className="relative flex items-center justify-center w-full flex-grow overflow-hidden" onClick={toggle}>
+        <div className="relative w-64 h-64 md:w-80 md:h-80 flex items-center justify-center transition-all duration-700">
+            <div className={`absolute inset-0 rounded-full blur-[60px] transition-all duration-[4000ms] ease-in-out
+               ${phase === 'inhale' ? 'scale-125 opacity-30 bg-[#d4af37]' : 
+                 phase === 'hold' ? 'scale-125 opacity-40 bg-amber-600' : 
+                 phase === 'exhale' ? 'scale-75 opacity-10 bg-stone-500' : 
+                 phase === 'hold-empty' ? 'scale-75 opacity-20 bg-stone-900' : 
+                 countdown !== null ? 'scale-105 opacity-20 bg-[#d4af37] animate-pulse' : 'scale-90 opacity-5 bg-stone-700'}`} 
             />
-
-            {/* Geometric Rings */}
             {[1, 2, 3].map((i) => (
-                <div key={i} 
-                    className={`absolute border border-[#d4af37]/20 rounded-full transition-all duration-[4000ms] ease-in-out
-                    ${phase === 'inhale' ? `w-${56 + i*8} h-${56 + i*8} scale-110 opacity-60` : 
-                      phase === 'exhale' ? `w-${40 + i*4} h-${40 + i*4} scale-90 opacity-30` :
-                      `w-${48 + i*6} h-${48 + i*6} scale-100 opacity-40`}`}
-                    style={{ width: `${100 + i * 40}px`, height: `${100 + i * 40}px` }} 
+                <div key={i} className={`absolute border rounded-full transition-all duration-[4000ms] ease-in-out
+                    ${phase === 'inhale' ? `scale-110 opacity-30 border-[#d4af37]` : 
+                      phase === 'exhale' ? `scale-90 opacity-10 border-stone-600` :
+                      `scale-100 opacity-20 border-stone-800`}`}
+                    style={{ width: `${100 + i * 40}px`, height: `${100 + i * 40}px`, transitionDelay: `${i * 100}ms` }} 
                 />
             ))}
-
-            {/* Core Circle */}
-            <div className={`w-32 h-32 rounded-full border border-[#d4af37]/50 flex items-center justify-center relative z-10 bg-[#12100e] transition-all duration-[4000ms] ease-in-out shadow-[0_0_30px_rgba(212,175,55,0.1)]
-              ${phase === 'inhale' ? 'scale-150 border-[#d4af37]/80' : 
-                phase === 'hold' ? 'scale-150 border-[#d4af37]/60' : 
-                phase === 'exhale' ? 'scale-75 border-[#d4af37]/30' : 'scale-100 hover:border-[#d4af37]/50'}`}
+            
+            <div className={`w-28 h-28 md:w-36 md:h-36 rounded-full flex flex-col items-center justify-center relative z-10 transition-all duration-[4000ms] ease-in-out shadow-2xl bg-stone-950 border
+              ${phase === 'inhale' ? 'scale-150 border-[#d4af37]' : 
+                phase === 'hold' ? 'scale-150 border-amber-600' : 
+                phase === 'exhale' ? 'scale-90 border-stone-800' : 
+                countdown !== null ? 'scale-110 border-[#d4af37]/60' : 'scale-100 border-stone-900 group-hover:border-stone-700'}`}
             >
-              <div className={`w-3 h-3 rounded-full bg-[#d4af37] transition-all duration-1000 ${guideState !== 'idle' ? 'opacity-100 blur-[2px]' : 'opacity-40'}`} />
+              {countdown !== null && (
+                 <div className="flex flex-col items-center animate-in zoom-in-50 duration-300">
+                    <span className="text-[#d4af37] font-serif text-5xl md:text-6xl leading-none">{countdown}</span>
+                 </div>
+              )}
+              {isRunning && countdown === null && (
+                  <div className="flex flex-col items-center animate-in fade-in duration-1000">
+                      <span className="text-[#d4af37] font-serif text-3xl md:text-4xl mb-1 leading-none">{timerText}</span>
+                      <span className="text-[7px] uppercase tracking-widest text-stone-600 font-bold">{phase}</span>
+                  </div>
+              )}
+              {!isRunning && countdown === null && <BreathIcon className="w-10 h-10 md:w-12 md:h-12 text-[#d4af37] opacity-40" />}
             </div>
         </div>
-        
-        {/* Countdown Overlay - Visible when circle is hidden */}
-        {isCountdown && (
-            <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-                <span className="text-6xl text-[#d4af37] font-serif animate-ping-slow">{text}</span>
-            </div>
-        )}
       </div>
 
-      {/* Instructions / Text - Fades out in immersive mode */}
-      <div className={`absolute bottom-4 md:relative h-20 text-center transition-opacity duration-1000 ${isImmersive ? 'opacity-0 hidden' : 'opacity-100'}`}>
-        <h3 className={`text-2xl md:text-3xl font-serif text-[#d4af37] tracking-widest transition-all duration-1000 ${phase === 'idle' && guideState === 'idle' ? 'opacity-70' : 'opacity-100 scale-110'}`}>
-          {text}
+      {/* Instructions Overlay */}
+      <div className={`pb-12 text-center transition-all duration-1000 ${isRunning || countdown !== null ? 'opacity-100 translate-y-0' : 'opacity-40 translate-y-2'}`}>
+        <h3 className="text-[#d4af37] font-serif text-lg md:text-2xl tracking-[0.15em] mb-3">
+          {isRunning || countdown !== null ? getPhaseText() : "Tap to Begin Expansion"}
         </h3>
-        <p className="text-stone-600 text-[10px] md:text-xs uppercase tracking-[0.2em] mt-4 opacity-60">
-            {isGeneratingScript && "Consulting the silence..."}
-            {!isGeneratingScript && !isAudioReady && "Initializing audio..."}
-            {isAudioReady && guideState === 'idle' && "Tap center to begin"}
-            {guideState === 'preparing' && "Tap when you are ready"} 
-            {/* Note: The above preparing text won't be seen because opacity is 0 in immersive mode, but kept for structure */}
+        <p className="text-stone-600 text-[9px] uppercase tracking-[0.3em]">
+           {isRunning ? techniques[technique].label : techniques[technique].description}
         </p>
       </div>
 
-       {/* Info Modal */}
       {showInfo && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-md p-6 animate-in fade-in duration-300" onClick={() => setShowInfo(false)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-6 animate-in fade-in duration-300" onClick={(e) => { e.stopPropagation(); setShowInfo(false); }}>
             <div className="bg-[#12100e] border border-stone-800 p-8 max-w-sm w-full relative shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
-                <button onClick={() => setShowInfo(false)} className="absolute top-4 right-4 text-stone-600 hover:text-[#d4af37] transition-colors">
-                    <XIcon className="w-5 h-5" />
-                </button>
-                
-                <h3 className="text-[#d4af37] font-serif text-lg tracking-widest uppercase mb-6 text-center border-b border-stone-900 pb-4">Techniques</h3>
-                
+                <button onClick={() => setShowInfo(false)} className="absolute top-4 right-4 text-stone-600 hover:text-[#d4af37] transition-colors"><XIcon className="w-5 h-5" /></button>
+                <h3 className="text-[#d4af37] font-serif text-lg tracking-widest uppercase mb-6 text-center border-b border-stone-900 pb-4">Breathing Arts</h3>
                 <div className="space-y-6">
-                    <div>
-                        <div className="flex justify-between items-baseline mb-2">
-                            <h4 className="text-stone-300 font-serif tracking-wide">Relax</h4>
-                            <span className="text-[#d4af37] text-xs opacity-60">4 — 7 — 8</span>
+                    {Object.keys(techniques).map(k => (
+                        <div key={k}>
+                            <h4 className="text-stone-300 font-serif mb-1 tracking-wide">{techniques[k as keyof typeof techniques].label}</h4>
+                            <p className="text-stone-500 text-[11px] leading-relaxed font-light">{techniques[k as keyof typeof techniques].description}</p>
                         </div>
-                        <p className="text-stone-500 text-xs leading-relaxed font-light">
-                            A natural tranquilizer for the nervous system. Inhale quietly through the nose for 4, hold the breath for 7, and exhale forcefully through the mouth for 8. Best for anxiety and sleep.
-                        </p>
-                    </div>
-
-                    <div>
-                         <div className="flex justify-between items-baseline mb-2">
-                            <h4 className="text-stone-300 font-serif tracking-wide">Balance</h4>
-                            <span className="text-[#d4af37] text-xs opacity-60">Box Breathing</span>
-                        </div>
-                        <p className="text-stone-500 text-xs leading-relaxed font-light">
-                            Equalizes the breath to heighten performance and concentration. Inhale, hold, exhale, and hold empty for equal counts of4. Used to reset the mind.
-                        </p>
-                    </div>
+                    ))}
                 </div>
             </div>
         </div>
@@ -1127,166 +568,23 @@ const BurnerJournalView = ({ isAudioEnabled }: { isAudioEnabled: boolean }) => {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<'idle' | 'burning' | 'essay' | 'reflection'>('idle');
   const [currentEssay, setCurrentEssay] = useState<typeof JOURNAL_ESSAYS[0] | null>(null);
-
-  const handleBurn = () => {
-    if (!text.trim()) return;
-    
-    // Select a random essay
-    const essay = JOURNAL_ESSAYS[Math.floor(Math.random() * JOURNAL_ESSAYS.length)];
-    setCurrentEssay(essay);
-
-    // Skip the 'burning' smoke animation phase as requested
-    setMode('essay');
-  };
-
-  const playCompletionMelody = () => {
-    const ctx = audioContext;
-    if (ctx.state === 'suspended') ctx.resume();
-    const now = ctx.currentTime;
-    
-    // Ethereal Harp-like Arpeggio (F Major Add9)
-    // F4, G4, A4, C5, F5
-    const notes = [349.23, 392.00, 440.00, 523.25, 698.46]; 
-    
-    notes.forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.frequency.value = freq;
-        osc.type = 'triangle'; // Softer than sine, but pure enough
-        
-        // Staggered entrance
-        const startTime = now + (i * 0.12);
-        
-        gain.gain.setValueAtTime(0, startTime);
-        gain.gain.linearRampToValueAtTime(0.08, startTime + 0.05); // Gentle attack
-        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 4); // Long reverb-like tail
-        
-        // Simple Lowpass for warmth
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = 1200;
-
-        osc.connect(filter).connect(gain).connect(ctx.destination);
-        osc.start(startTime);
-        osc.stop(startTime + 4.1);
-    });
-  };
-
-  const handleReady = () => {
-    playCompletionMelody();
-    setText(""); // Now we clear the text as the user has committed to releasing it.
-    setMode('reflection');
-  };
-
-  const handleEdit = () => {
-    setMode('idle');
-  };
+  const handleBurn = () => { if (!text.trim()) return; setCurrentEssay(JOURNAL_ESSAYS[Math.floor(Math.random() * JOURNAL_ESSAYS.length)]); setMode('essay'); };
+  const handleReady = () => { setText(""); setMode('reflection'); };
+  const handleEdit = () => setMode('idle');
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-start pt-12 md:pt-20 p-6 animate-in fade-in slide-in-from-bottom-8 duration-1000">
-       
-       {/* HEADER */}
-       <div className={`text-center mb-8 transition-all duration-700 ${mode === 'reflection' ? 'opacity-0 h-0 overflow-hidden mb-0' : 'opacity-100'}`}>
-        <h2 className="text-[#d4af37] font-serif text-xl tracking-[0.2em] uppercase opacity-80 mb-2">The Burner</h2>
-        <div className="w-12 h-[1px] bg-stone-800 mx-auto" />
-        <p className="text-stone-600 text-xs mt-4 tracking-widest uppercase">
-            {mode === 'essay' ? "Insight" : "Release your burdens into the void"}
-        </p>
-      </div>
-
+       <div className={`text-center mb-8 transition-all duration-700 ${mode === 'reflection' ? 'opacity-0 h-0 overflow-hidden mb-0' : 'opacity-100'}`}><h2 className="text-[#d4af37] font-serif text-xl tracking-[0.2em] uppercase opacity-80 mb-2">The Burner</h2><div className="w-12 h-[1px] bg-stone-800 mx-auto" /><p className="text-stone-600 text-xs mt-4 tracking-widest uppercase">{mode === 'essay' ? "Insight" : "Release your burdens into the void"}</p></div>
       <div className="relative w-full max-w-lg min-h-[400px]">
-        
-        {/* INPUT STATE */}
-        <div className={`transition-all duration-700 ease-in-out w-full
-            ${(mode === 'idle' || mode === 'burning') ? 'opacity-100 relative z-10' : 'opacity-0 absolute inset-0 z-0 pointer-events-none translate-y-8'}`}>
-            <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                disabled={mode === 'burning'}
-                placeholder="Type out what weighs on you..."
-                className="w-full h-64 bg-stone-900/30 border border-stone-800/50 rounded-sm p-6 text-stone-400 font-serif text-lg italic focus:outline-none focus:border-[#d4af37]/30 transition-all resize-none placeholder-stone-700"
-            />
-            
-            <div className="mt-8 flex justify-center">
-                <button
-                    onClick={handleBurn}
-                    disabled={!text.trim() || mode === 'burning'}
-                    className="px-8 py-3 border border-stone-800 text-stone-500 hover:text-[#d4af37] hover:border-[#d4af37]/50 rounded-full text-xs uppercase tracking-[0.3em] transition-all disabled:opacity-30 disabled:cursor-not-allowed group relative overflow-hidden"
-                >
-                    <span className="relative z-10">Release</span>
-                    <div className="absolute inset-0 bg-[#d4af37]/10 translate-y-full group-hover:translate-y-0 transition-transform duration-500"/>
-                </button>
-            </div>
-        </div>
-
-        {/* ESSAY STATE */}
-        <div className={`transition-all duration-1000 ease-in-out flex flex-col items-center justify-center
-             ${mode === 'essay' ? 'opacity-100 relative translate-y-0' : 'opacity-0 absolute inset-0 pointer-events-none -translate-y-4'}`}>
-             
-             {currentEssay && (
-                 <>
-                    <h3 className="text-stone-400 font-serif text-lg italic mb-6 tracking-wide">
-                        "{currentEssay.title}"
-                    </h3>
-                    <p className="text-stone-300 font-serif text-base md:text-xl leading-loose text-center font-light">
-                        {currentEssay.text}
-                    </p>
-                 </>
-             )}
-
-             <div className="flex gap-4 mt-12">
-                 <button 
-                    onClick={handleEdit}
-                    className="px-6 py-3 border border-stone-800 text-stone-600 hover:text-stone-400 text-[10px] uppercase tracking-widest rounded-full transition-colors"
-                 >
-                     Edit Text
-                 </button>
-                 <button 
-                    onClick={handleReady}
-                    className="px-8 py-3 bg-[#d4af37]/10 border border-[#d4af37]/30 text-[#d4af37] hover:bg-[#d4af37]/20 text-[10px] uppercase tracking-widest rounded-full transition-all shadow-[0_0_15px_rgba(212,175,55,0.1)] hover:shadow-[0_0_25px_rgba(212,175,55,0.2)]"
-                 >
-                     I am ready
-                 </button>
-             </div>
-        </div>
-
-        {/* REFLECTION STATE */}
-        <div className={`transition-all duration-1000 ease-in-out flex flex-col items-center justify-center
-             ${mode === 'reflection' ? 'opacity-100 relative translate-y-0' : 'opacity-0 absolute inset-0 pointer-events-none translate-y-4'}`}>
-             
-             <div className="w-16 h-16 rounded-full bg-[#d4af37]/5 flex items-center justify-center mb-8 animate-pulse">
-                <div className="w-2 h-2 bg-[#d4af37] rounded-full shadow-[0_0_10px_#d4af37]" />
-             </div>
-             
-             <p className="text-stone-400 font-serif text-xl md:text-2xl text-center leading-relaxed max-w-md">
-                 It is time to self reflect.
-                 <br />
-                 <span className="text-[#d4af37] text-lg opacity-80 mt-4 block">Put the phone away for a few minutes.</span>
-             </p>
-
-             <button 
-                onClick={handleEdit}
-                className="mt-16 text-stone-700 hover:text-stone-500 text-[10px] uppercase tracking-[0.2em] transition-colors"
-             >
-                 Begin Again
-             </button>
-        </div>
-
+        <div className={`transition-all duration-700 ease-in-out w-full ${(mode === 'idle' || mode === 'burning') ? 'opacity-100 relative z-10' : 'opacity-0 absolute inset-0 z-0 pointer-events-none translate-y-8'}`}><textarea value={text} onChange={(e) => setText(e.target.value)} disabled={mode === 'burning'} placeholder="Type out what weighs on you..." className="w-full h-64 bg-stone-900/30 border border-stone-800/50 rounded-sm p-6 text-stone-400 font-serif text-lg italic focus:outline-none focus:border-[#d4af37]/30 transition-all resize-none placeholder-stone-700" /><div className="mt-8 flex justify-center"><button onClick={handleBurn} disabled={!text.trim() || mode === 'burning'} className="px-8 py-3 border border-stone-800 text-stone-500 hover:text-[#d4af37] hover:border-[#d4af37]/50 rounded-full text-xs uppercase tracking-[0.3em] transition-all disabled:opacity-30 disabled:cursor-not-allowed group relative overflow-hidden"><span className="relative z-10">Release</span><div className="absolute inset-0 bg-[#d4af37]/10 translate-y-full group-hover:translate-y-0 transition-transform duration-500"/></button></div></div>
+        <div className={`transition-all duration-1000 ease-in-out flex flex-col items-center justify-center ${mode === 'essay' ? 'opacity-100 relative translate-y-0' : 'opacity-0 absolute inset-0 pointer-events-none -translate-y-4'}`}>{currentEssay && (<><h3 className="text-stone-400 font-serif text-lg italic mb-6 tracking-wide">"{currentEssay.title}"</h3><p className="text-stone-300 font-serif text-base md:text-xl leading-loose text-center font-light">{currentEssay.text}</p></>)}<div className="flex gap-4 mt-12"><button onClick={handleEdit} className="px-6 py-3 border border-stone-800 text-stone-600 hover:text-stone-400 text-[10px] uppercase tracking-widest rounded-full transition-colors">Edit Text</button><button onClick={handleReady} className="px-8 py-3 bg-[#d4af37]/10 border border-[#d4af37]/30 text-[#d4af37] hover:bg-[#d4af37]/20 text-[10px] uppercase tracking-widest rounded-full transition-all shadow-[0_0_15px_rgba(212,175,55,0.1)] hover:shadow-[0_0_25px_rgba(212,175,55,0.2)]">I am ready</button></div></div>
+        <div className={`transition-all duration-1000 ease-in-out flex flex-col items-center justify-center ${mode === 'reflection' ? 'opacity-100 relative translate-y-0' : 'opacity-0 absolute inset-0 pointer-events-none translate-y-4'}`}><div className="w-16 h-16 rounded-full bg-[#d4af37]/5 flex items-center justify-center mb-8 animate-pulse"><div className="w-2 h-2 bg-[#d4af37] rounded-full shadow-[0_0_10px_#d4af37]" /></div><p className="text-stone-400 font-serif text-xl md:text-2xl text-center leading-relaxed max-w-md">It is time to self reflect.<br /><span className="text-[#d4af37] text-lg opacity-80 mt-4 block">Put the phone away for a few minutes.</span></p><button onClick={handleEdit} className="mt-16 text-stone-700 hover:text-stone-500 text-[10px] uppercase tracking-[0.2em] transition-colors">Begin Again</button></div>
       </div>
     </div>
   );
 };
 
-type Message = {
-  id: string;
-  role: 'user' | 'model';
-  text: string;
-  image?: string;
-  isPlaying?: boolean;
-  isNew?: boolean;
-};
-
-// Phases for cinematic intro
+type Message = { id: string; role: 'user' | 'model'; text: string; image?: string; isPlaying?: boolean; isNew?: boolean; };
 type LoadingPhase = 'init' | 'logo-waiting' | 'logo-bloom' | 'shift-and-quote' | 'reveal-instruction' | 'entering' | 'done';
 type ViewMode = 'chat' | 'breathe' | 'journal' | 'focus';
 
@@ -1303,1004 +601,308 @@ const App = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState(false); 
   const [isMusicEnabled, setIsMusicEnabled] = useState(true);
-  const [currentAudioSource, setCurrentAudioSource] = useState<AudioBufferSourceNode | null>(null);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
-  const [isListening, setIsListening] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
   const [isTransitioning, setIsTransitioning] = useState(false);
-  // New global state for immersion
   const [isImmersive, setIsImmersive] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   
   const chatRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  
-  // Audio Refs
   const ambientContextRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
   const templeGainRef = useRef<GainNode | null>(null);
   const breathDroneGainRef = useRef<GainNode | null>(null);
+  const breathFilterRef = useRef<BiquadFilterNode | null>(null);
   const focusGainRef = useRef<GainNode | null>(null);
-  const bowlTimerRef = useRef<number | null>(null);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const recognitionRef = useRef<any>(null);
   
-  // Swipe Refs
-  const touchStart = useRef<{x: number, y: number} | null>(null);
-  const touchEnd = useRef<{x: number, y: number} | null>(null);
-
-  // Computed property for visual glow
   const isActive = isSpeaking || isTyping;
 
-  // --- Audio System ---
-  
   const initAudio = useCallback(() => {
     if (ambientContextRef.current) return;
-    
     const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-    const ctx = new Ctx();
-    ambientContextRef.current = ctx;
+    const ctx = new Ctx(); ambientContextRef.current = ctx;
+    const master = ctx.createGain(); master.gain.value = 0; master.connect(ctx.destination); masterGainRef.current = master;
     
-    const master = ctx.createGain();
-    master.gain.value = 0;
-    master.connect(ctx.destination);
-    masterGainRef.current = master;
-
-    // --- Helper: Create ethereal pad layer (Used for Breathing Mode) ---
-    const createPadLayer = (freqs: number[], outputNode: GainNode, vol: number = 0.1) => {
-       freqs.forEach((f, i) => {
-           const osc = ctx.createOscillator();
-           const gain = ctx.createGain();
-           const pan = ctx.createStereoPanner();
-           
-           osc.type = 'sine';
-           osc.frequency.value = f;
-           
-           // STATIC DRONE: No LFO modulation, constant steady gain for calming effect
-           gain.gain.value = vol * 0.5; 
-           pan.pan.value = (i % 2 === 0 ? -1 : 1) * 0.3; 
-
-           osc.connect(gain).connect(pan).connect(outputNode);
-           osc.start();
-       });
-    };
-
-    // --- Channel 1: Temple Ambience (Chat) ---
-    // Dynamic, Generative, Endel-style F-Major Pentatonic
-    const templeGain = ctx.createGain();
-    templeGain.gain.value = 0;
-    templeGain.connect(master);
+    // --- Temple Ambience (Chat Mode) ---
+    const templeGain = ctx.createGain(); 
+    templeGain.gain.value = 0; 
+    templeGain.connect(master); 
     templeGainRef.current = templeGain;
 
-    // 1. Deep Sub-bass Anchor (F1 ~43.65Hz)
-    const subOsc = ctx.createOscillator();
-    subOsc.type = 'sine';
-    subOsc.frequency.value = 43.65;
-    const subGain = ctx.createGain();
-    subGain.gain.value = 0.3; // Increased volume
-    subOsc.connect(subGain).connect(templeGain);
-    subOsc.start();
-
-    // 2. Evolving "Cloud" - F Major Pentatonic
-    // F3, G3, A3, C4, D4, F4
-    const notes = [174.61, 196.00, 220.00, 261.63, 293.66, 349.23];
-    
-    notes.forEach((freq) => {
-        // Create a stereo pair for binaural shimmering
-        const osc1 = ctx.createOscillator();
-        osc1.type = 'sine';
-        osc1.frequency.value = freq - (0.5 + Math.random() * 0.5); // Slight flat detune
-
-        const osc2 = ctx.createOscillator();
-        osc2.type = 'sine';
-        osc2.frequency.value = freq + (0.5 + Math.random() * 0.5); // Slight sharp detune
-        
-        // Panning LFO - Drifting spatialization
-        const panLfo = ctx.createOscillator();
-        panLfo.frequency.value = 0.04 + (Math.random() * 0.06); // Slow drift
-        const panner = ctx.createStereoPanner();
-        // LFO controls panning -1 to 1
-        // We can just connect osc to panning gain for simplicity, but AudioParam automation is better
-        // Simpler implementation:
-        const panSource = ctx.createConstantSource(); // To offset if needed, or just pure LFO
-        panSource.start();
-        // LFO output connects to panner.pan directly. Oscillator default output is -1 to 1.
-        panLfo.connect(panner.pan);
-        panLfo.start();
-
-        // Volume LFO - The "Breathing" Cloud
-        const ampLfo = ctx.createOscillator();
-        ampLfo.frequency.value = 0.02 + (Math.random() * 0.04); // Very slow swell
-        const voiceGain = ctx.createGain();
-        voiceGain.gain.value = 0;
-        
-        // Map LFO [-1, 1] to Gain [0, max]
-        // We use a gain node to scale LFO output, then connect to Gain.gain
-        // But AudioParam values are additive. 
-        // Better pattern: LFO -> GainNode(scale) -> GainNode.gain(offset)
-        const lfoScale = ctx.createGain();
-        lfoScale.gain.value = 0.06; // Increased modulation depth
-        // Connect LFO to scaler
-        ampLfo.connect(lfoScale);
-        // Connect scaler to voice gain (additive to the base value of 0.015)
-        lfoScale.connect(voiceGain.gain);
-        
-        // Set base volume so it never fully dies
-        voiceGain.gain.value = 0.03; // Increased base volume
-
-        ampLfo.start();
-        
-        osc1.connect(panner);
-        osc2.connect(panner);
-        panner.connect(voiceGain).connect(templeGain);
-        
-        osc1.start();
-        osc2.start();
-    });
-
-    // 3. Texture: Organic Vinyl Crackle & Pop
-    const vinylBufferSize = ctx.sampleRate * 5; // 5s loop
-    const vinylBuffer = ctx.createBuffer(2, vinylBufferSize, ctx.sampleRate); // Stereo
-    const left = vinylBuffer.getChannelData(0);
-    const right = vinylBuffer.getChannelData(1);
-    
-    for (let i = 0; i < vinylBufferSize; i++) {
-        // Soft static hiss
+    const bufferSize = 2 * ctx.sampleRate;
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    let lastOut = 0;
+    for (let i = 0; i < bufferSize; i++) {
         const white = Math.random() * 2 - 1;
-        const hiss = white * 0.004; // Very quiet base
-        
-        // Random Pops
-        let popL = 0;
-        let popR = 0;
-        
-        if (Math.random() < 0.0003) popL = (Math.random() * 2 - 1) * 0.1;
-        if (Math.random() < 0.0003) popR = (Math.random() * 2 - 1) * 0.1;
-
-        left[i] = hiss + popL;
-        right[i] = hiss + popR;
+        output[i] = (lastOut + (0.02 * white)) / 1.02;
+        lastOut = output[i];
+        output[i] *= 3.5; 
     }
-    const vinylSource = ctx.createBufferSource();
-    vinylSource.buffer = vinylBuffer;
-    vinylSource.loop = true;
-    
-    // Highpass to remove low mud
-    const vinylFilter = ctx.createBiquadFilter();
-    vinylFilter.type = 'highpass';
-    vinylFilter.frequency.value = 700; 
 
-    const vinylGain = ctx.createGain();
-    vinylGain.gain.value = 0.05; // Reduced texture volume
+    const waterSource = ctx.createBufferSource();
+    waterSource.buffer = noiseBuffer;
+    waterSource.loop = true;
+    const waterFilter = ctx.createBiquadFilter();
+    waterFilter.type = 'lowpass';
+    waterFilter.frequency.value = 120; 
+    const waterGain = ctx.createGain();
+    waterGain.gain.value = 0.08; 
+    waterSource.connect(waterFilter).connect(waterGain).connect(templeGain);
+    waterSource.start();
 
-    vinylSource.connect(vinylFilter).connect(vinylGain).connect(templeGain);
-    vinylSource.start();
+    const scale = [155.56, 174.61, 196.00, 233.08, 261.63]; 
+    const delay = ctx.createDelay();
+    delay.delayTime.value = 0.75; 
+    const delayFeedback = ctx.createGain();
+    delayFeedback.gain.value = 0.4;
+    const delayFilter = ctx.createBiquadFilter();
+    delayFilter.type = 'lowpass';
+    delayFilter.frequency.value = 800; 
+    templeGain.connect(delay);
+    delay.connect(delayFilter);
+    delayFilter.connect(delayFeedback);
+    delayFeedback.connect(delay);
+    delay.connect(master);
 
-    // 4. "Starry" Shimmer Layer (High frequency texture)
-    const shimmerOsc = ctx.createOscillator();
-    shimmerOsc.type = 'sine';
-    shimmerOsc.frequency.value = 523.25; // C5
-    const shimmerGain = ctx.createGain();
-    shimmerGain.gain.value = 0;
-    
-    const shimmerLfo = ctx.createOscillator();
-    shimmerLfo.frequency.value = 0.15;
-    const shimmerScale = ctx.createGain();
-    shimmerScale.gain.value = 0.02; // Increased shimmer volume
-    
-    shimmerLfo.connect(shimmerScale).connect(shimmerGain.gain);
-    shimmerOsc.connect(shimmerGain).connect(templeGain);
-    
-    shimmerOsc.start();
-    shimmerLfo.start();
+    const playGlassNote = () => {
+        if (ctx.state === 'suspended') return;
+        const now = ctx.currentTime;
+        const noteFreq = scale[Math.floor(Math.random() * scale.length)];
+        const carrier = ctx.createOscillator();
+        carrier.type = 'sine';
+        carrier.frequency.value = noteFreq;
+        const modulator = ctx.createOscillator();
+        modulator.type = 'sine';
+        modulator.frequency.value = noteFreq * 2;
+        const modGain = ctx.createGain();
+        modulator.connect(modGain);
+        modGain.connect(carrier.frequency);
+        const masterVol = ctx.createGain();
+        masterVol.gain.setValueAtTime(0, now);
+        masterVol.gain.linearRampToValueAtTime(0.06, now + 0.1); 
+        masterVol.gain.exponentialRampToValueAtTime(0.001, now + 5.0); 
+        modGain.gain.setValueAtTime(100, now); 
+        modGain.gain.exponentialRampToValueAtTime(1, now + 1.0); 
+        const panner = ctx.createStereoPanner();
+        panner.pan.value = (Math.random() * 1.6) - 0.8;
+        carrier.connect(masterVol).connect(panner).connect(templeGain);
+        carrier.start(now);
+        modulator.start(now);
+        carrier.stop(now + 6);
+        modulator.stop(now + 6);
+        setTimeout(playGlassNote, 3000 + Math.random() * 4000);
+    };
+    playGlassNote();
 
-
-    // --- Channel 2: Breathe (Meditation) ---
-    // Higher, lighter, "Floating".
-    // Frequencies: D Major (D3, A3, F#4) - Ethereal and uplifting
     const breathGain = ctx.createGain();
     breathGain.gain.value = 0;
     breathGain.connect(master);
     breathDroneGainRef.current = breathGain;
-
-    createPadLayer([146.83, 220.00, 369.99], breathGain, 0.25); // Increased volume
-
-
-    // --- Channel 3: Focus (Pomodoro) ---
-    // Minimalist, Spacious, Reverberant (C Minor Add9) - Deep Space / Underwater
-    const focusGain = ctx.createGain();
-    focusGain.gain.value = 0;
-    focusGain.connect(master);
-    focusGainRef.current = focusGain;
-
-    // Layer 1: The Deep Void (Sub Drone) - Steady anchor
-    const focusSub = ctx.createOscillator();
-    focusSub.type = 'sine';
-    focusSub.frequency.value = 65.41; // C2
-    const focusSubGain = ctx.createGain();
-    focusSubGain.gain.value = 0.12; 
-    focusSub.connect(focusSubGain).connect(focusGain);
-    focusSub.start();
-
-    // Layer 2: Evolving Tonal Texture (C Minor 9) - Drifting pads
-    // C3, Eb3, G3, D4
-    const focusNotes = [130.81, 155.56, 196.00, 293.66];
-    focusNotes.forEach((f) => {
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        const panner = ctx.createStereoPanner();
-        
-        osc.type = 'triangle'; // Slightly richer than sine
-        osc.frequency.value = f;
-        
-        // Slow Amplitude Modulation (breathing)
-        const lfo = ctx.createOscillator();
-        lfo.frequency.value = 0.03 + (Math.random() * 0.04); // Very slow
-        const lfoGain = ctx.createGain();
-        lfoGain.gain.value = 0.025; // Modulation depth
-        
-        // Base volume
-        g.gain.value = 0.015; // Very quiet base
-        
-        lfo.connect(lfoGain).connect(g.gain);
-        lfo.start();
-        
-        // Slow Panning
-        const panLfo = ctx.createOscillator();
-        panLfo.frequency.value = 0.02 + (Math.random() * 0.03);
-        panLfo.connect(panner.pan);
-        panLfo.start();
-
-        // Lowpass to make it distant/underwater
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = 350 + (Math.random() * 150);
-
-        osc.connect(filter).connect(g).connect(panner).connect(focusGain);
-        osc.start();
+    const masterFilter = ctx.createBiquadFilter();
+    masterFilter.type = 'lowpass';
+    masterFilter.frequency.value = 400; 
+    breathFilterRef.current = masterFilter;
+    const floatingFreqs = [110.00, 164.81, 220.00, 277.18, 329.63, 440.00, 659.25];
+    floatingFreqs.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const vca = ctx.createGain();
+      const panner = ctx.createStereoPanner();
+      osc.type = 'triangle';
+      osc.frequency.value = freq + (Math.random() * 0.4);
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.04 + (i * 0.012); 
+      const lfoG = ctx.createGain();
+      lfoG.gain.value = 0.03;
+      lfo.connect(lfoG).connect(vca.gain);
+      lfo.start();
+      panner.pan.value = (i % 2 === 0 ? -0.8 : 0.8);
+      osc.connect(panner).connect(vca).connect(masterFilter).connect(breathGain);
+      vca.gain.value = 0.04; 
+      osc.start();
     });
 
-    // Layer 3: Occasional "Light" (High pings) - Distant thoughts
-    // Self-contained loop for occasional chimes
-    const triggerPing = () => {
-        if (ctx.state === 'closed') return;
-        const pingNow = ctx.currentTime;
-        // C5, D5, Eb5, G5
-        const pings = [523.25, 587.33, 622.25, 783.99];
-        const freq = pings[Math.floor(Math.random() * pings.length)];
-        
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        const pan = ctx.createStereoPanner();
-        
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, pingNow);
-        
-        pan.pan.value = Math.random() * 2 - 1;
-        
-        g.gain.setValueAtTime(0, pingNow);
-        g.gain.linearRampToValueAtTime(0.025, pingNow + 0.5); // Slow attack
-        g.gain.exponentialRampToValueAtTime(0.001, pingNow + 8); // Long reverb tail
-        
-        osc.connect(g).connect(pan).connect(focusGain);
-        osc.start(pingNow);
-        osc.stop(pingNow + 8.5);
-        
-        // Schedule next ping
-        setTimeout(triggerPing, 4000 + Math.random() * 6000);
-    };
-    // Start the ping loop
-    triggerPing();
-
-
+    const focusGain = ctx.createGain(); focusGain.gain.value = 0; focusGain.connect(master); focusGainRef.current = focusGain;
+    [130.81, 155.56, 196.00, 293.66].forEach((f) => {
+        const osc = ctx.createOscillator(); const g = ctx.createGain(); const p = ctx.createStereoPanner(); osc.type = 'triangle'; osc.frequency.value = f;
+        const lfo = ctx.createOscillator(); lfo.frequency.value = 0.04; const lg = ctx.createGain(); lg.gain.value = 0.025; g.gain.value = 0.015; lfo.connect(lg).connect(g.gain); lfo.start();
+        const panLfo = ctx.createOscillator(); panLfo.frequency.value = 0.02; panLfo.connect(p.pan); panLfo.start();
+        const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 400; osc.connect(filter).connect(g).connect(p).connect(focusGain); osc.start();
+    });
     if (ctx.state === 'suspended') ctx.resume();
   }, []);
 
-  const updateAudioMix = useCallback((mode: ViewMode, isBreathingActive: boolean = false) => {
+  const updateAudioMix = useCallback((mode: ViewMode, phase?: BreathingPhase) => {
       if (!ambientContextRef.current || !templeGainRef.current || !breathDroneGainRef.current) return;
-      const ctx = ambientContextRef.current;
-      const now = ctx.currentTime;
-      const transitionTime = 3; // Slower, smoother crossfade
-
-      // Handle Master
+      const ctx = ambientContextRef.current; 
+      const now = ctx.currentTime; 
       if (!isMusicEnabled) {
-          masterGainRef.current?.gain.setTargetAtTime(0, now, 0.5);
+        masterGainRef.current?.gain.setTargetAtTime(0, now, 0.5); 
       } else {
-          masterGainRef.current?.gain.setTargetAtTime(0.8, now, 1); // Increased master volume
+        masterGainRef.current?.gain.setTargetAtTime(0.8, now, 1);
       }
-
-      if (mode === 'chat') {
-          templeGainRef.current.gain.setTargetAtTime(1, now, transitionTime);
-          breathDroneGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
-          if (focusGainRef.current) focusGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
-      } else if (mode === 'breathe') {
-          templeGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
-          // Significantly reduced volume for breathing (0.2), and static
-          const targetVol = isBreathingActive ? 0.2 : 0.1;
-          breathDroneGainRef.current.gain.setTargetAtTime(targetVol, now, transitionTime);
-          if (focusGainRef.current) focusGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
-      } else if (mode === 'focus') {
-          templeGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
-          breathDroneGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
-          if (focusGainRef.current) focusGainRef.current.gain.setTargetAtTime(1, now, transitionTime);
-      } else if (mode === 'journal') {
-          // Quiet ambience for journal
-          templeGainRef.current.gain.setTargetAtTime(0.2, now, transitionTime); 
-          breathDroneGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
-          if (focusGainRef.current) focusGainRef.current.gain.setTargetAtTime(0, now, transitionTime);
+      if (mode === 'chat') { 
+        templeGainRef.current.gain.setTargetAtTime(1, now, 3); 
+        focusGainRef.current?.gain.setTargetAtTime(0, now, 3);
+        breathDroneGainRef.current?.gain.setTargetAtTime(0, now, 2);
       }
-
+      else if (mode === 'breathe') {
+        templeGainRef.current.gain.setTargetAtTime(0, now, 3);
+        focusGainRef.current?.gain.setTargetAtTime(0, now, 3);
+        breathDroneGainRef.current?.gain.setTargetAtTime(1, now, 3);
+        if (breathFilterRef.current) {
+          if (phase === 'inhale') {
+             breathFilterRef.current.frequency.setTargetAtTime(1200, now, 3);
+             breathDroneGainRef.current?.gain.setTargetAtTime(1.4, now, 3);
+          } else if (phase === 'exhale') {
+             breathFilterRef.current.frequency.setTargetAtTime(250, now, 4);
+             breathDroneGainRef.current?.gain.setTargetAtTime(0.4, now, 4);
+          } else {
+             breathFilterRef.current.frequency.setTargetAtTime(500, now, 2);
+          }
+        }
+      }
+      else if (mode === 'focus') { 
+        templeGainRef.current.gain.setTargetAtTime(0, now, 3); 
+        breathDroneGainRef.current?.gain.setTargetAtTime(0, now, 2);
+        focusGainRef.current?.gain.setTargetAtTime(1, now, 3); 
+      }
+      else if (mode === 'journal') { 
+        templeGainRef.current.gain.setTargetAtTime(0.2, now, 3); 
+        breathDroneGainRef.current?.gain.setTargetAtTime(0, now, 2);
+        focusGainRef.current?.gain.setTargetAtTime(0, now, 3); 
+      }
   }, [isMusicEnabled]);
 
   const strikeZenBell = useCallback((multiplier = 1.0) => {
-    if (!isMusicEnabled) return;
-    initAudio();
-    if (!ambientContextRef.current) return;
-    const ctx = ambientContextRef.current;
-    if (ctx.state === 'suspended') ctx.resume();
-    const now = ctx.currentTime;
-    
-    // Reverting to deep fundamental 55Hz and complex ratios for the "Dong" sound
-    const fundamental = 55; 
-    [1, 1.1, 1.5, 2, 2.7, 3, 4.1].forEach((ratio, i) => {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(fundamental * ratio, now);
-      g.gain.setValueAtTime(0, now);
-      
-      // Stronger attack for the "Dong"
-      const v = (i === 0 ? 0.6 : 0.3 / (i + 1)) * multiplier;
-      
-      g.gain.linearRampToValueAtTime(v, now + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 10); // Long decay
-      
-      osc.connect(g);
-      g.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 10.1);
-    });
-  }, [initAudio, isMusicEnabled]);
-
-  const strikeHighBell = useCallback(() => {
-    if (!isMusicEnabled) return;
-    initAudio();
-    if (!ambientContextRef.current) return;
-    const ctx = ambientContextRef.current;
-    if (ctx.state === 'suspended') ctx.resume();
-    const now = ctx.currentTime;
-
-    // Tingsha / High bell simulation
-    // High partials, long ring
-    const freqs = [2600, 2700, 5200, 7800];
-    freqs.forEach((f, i) => {
-       const osc = ctx.createOscillator();
-       const g = ctx.createGain();
-       osc.type = 'sine';
-       // Slight detune for shimmering effect
-       osc.frequency.setValueAtTime(f + (Math.random() * 20 - 10), now);
-       
-       g.gain.setValueAtTime(0, now);
-       g.gain.linearRampToValueAtTime(0.1 / (i + 1), now + 0.01);
-       g.gain.exponentialRampToValueAtTime(0.001, now + 4); 
-
-       osc.connect(g);
-       g.connect(ctx.destination);
-       osc.start(now);
-       osc.stop(now + 4.5);
-    });
+    if (!isMusicEnabled) return; initAudio(); if (!ambientContextRef.current) return;
+    const ctx = ambientContextRef.current; if (ctx.state === 'suspended') ctx.resume(); const now = ctx.currentTime;
+    [1, 1.1, 1.5, 2, 2.7, 3].forEach((ratio, i) => { const osc = ctx.createOscillator(); const g = ctx.createGain(); osc.type = 'sine'; osc.frequency.setValueAtTime(55 * ratio, now); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime((i === 0 ? 0.6 : 0.3 / (i + 1)) * multiplier, now + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, now + 10); osc.connect(g).connect(ctx.destination); osc.start(now); osc.stop(now + 10.1); });
   }, [initAudio, isMusicEnabled]);
 
   const playStartChime = useCallback(() => {
-    initAudio();
-    if (!ambientContextRef.current) return;
-    const ctx = ambientContextRef.current;
-    if (ctx.state === 'suspended') ctx.resume();
-    const now = ctx.currentTime;
-    
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    
-    // Soft chime-like beep (Sine wave with envelope)
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(440, now); // A4
-    
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.1, now + 0.05); // Soft attack
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6); // Gentle decay
-    
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    
-    osc.start(now);
-    osc.stop(now + 0.7);
+    initAudio(); if (!ambientContextRef.current) return;
+    const ctx = ambientContextRef.current; const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.type = 'sine'; osc.frequency.setValueAtTime(440, ctx.currentTime); gain.gain.setValueAtTime(0, ctx.currentTime); gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.05); gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6); osc.connect(gain).connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.7);
   }, [initAudio]);
-
-  const playRestoreCompleteChime = useCallback(() => {
-      initAudio();
-      if (!ambientContextRef.current) return;
-      const ctx = ambientContextRef.current;
-      if (ctx.state === 'suspended') ctx.resume();
-      const now = ctx.currentTime;
-
-      // Soft ascending melodic ripple (E-Major: E, G#, B)
-      const notes = [329.63, 415.30, 493.88, 659.25]; // E4, G#4, B4, E5
-      notes.forEach((freq, i) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, now);
-
-          // Staggered start times
-          const startTime = now + (i * 0.15);
-
-          gain.gain.setValueAtTime(0, startTime);
-          gain.gain.linearRampToValueAtTime(0.08, startTime + 0.1); // Gentle attack
-          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 2.5); // Long soft tail
-
-          osc.connect(gain).connect(ctx.destination);
-          osc.start(startTime);
-          osc.stop(startTime + 2.6);
-      });
-  }, [initAudio]);
-
-  const strikeBowl = useCallback(() => {
-    if (!ambientContextRef.current || !masterGainRef.current || !isMusicEnabled) return;
-    const ctx = ambientContextRef.current;
-    const now = ctx.currentTime;
-    // Retuned Singing Bowl to match F Major (using F3 harmonic series base)
-    // F3 = 174.61Hz. Harmonics: F4(349), C5(523), F5(698)
-    const freqs = [174.61, 349.23, 523.25, 698.46]; 
-    freqs.forEach((f, i) => {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = f;
-      g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(0.2 / (i + 1), now + 0.1); // Increased bowl volume
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 12);
-      osc.connect(g);
-      g.connect(masterGainRef.current!);
-      osc.start(now);
-      osc.stop(now + 13);
-    });
-  }, [isMusicEnabled]);
 
   const startIntroSequence = () => {
     if (loadingPhase !== 'init') return;
-    if (audioContext.state === 'suspended') audioContext.resume();
+
+    // 1. Initialize main audio engine
     initAudio();
-    strikeZenBell(0.8);
+
+    // 2. Play the intro music directly from path
+    const introAudio = new Audio("./intro.mp3"); 
+    introAudio.volume = 1.0; 
+    introAudio.play().catch(e => console.error("Audio play failed", e));
+
+    // 3. Sync visuals
     setLoadingPhase('logo-waiting');
-    
+
     setTimeout(() => {
-      setLoadingPhase('logo-bloom');
+      setLoadingPhase('logo-bloom'); 
+      
       setTimeout(() => {
-        setLoadingPhase('shift-and-quote');
+        setLoadingPhase('shift-and-quote'); 
+        
         setTimeout(() => {
-          setLoadingPhase('reveal-instruction');
-        }, 5000);
+            // Fade out logic
+            const fadeOut = setInterval(() => {
+                if (introAudio.volume > 0.05) introAudio.volume -= 0.05;
+                else { introAudio.pause(); clearInterval(fadeOut); }
+            }, 100);
+            
+            setLoadingPhase('reveal-instruction');
+        }, 5000); 
       }, 2000);
-    }, 1200); 
+    }, 1200);
   };
 
-  const enterSanctuary = useCallback(() => {
-    if (loadingPhase !== 'reveal-instruction') return;
-    setLoadingPhase('entering');
-    if (audioContext.state === 'suspended') audioContext.resume();
-    strikeZenBell(1.0); 
-    initAudio();
-    
-    // Ramp up ambient
-    if (ambientContextRef.current && masterGainRef.current) {
-        if (ambientContextRef.current.state === 'suspended') ambientContextRef.current.resume();
-        updateAudioMix('chat');
-        if (!bowlTimerRef.current) {
-            strikeBowl();
-            bowlTimerRef.current = window.setInterval(strikeBowl, 25000);
-        }
-    }
-
-    const sequence = async () => {
-      await new Promise(r => setTimeout(r, 1500));
-      setIsOverlayFading(true);
-      await new Promise(r => setTimeout(r, 800));
-      setIsMonkEntering(true);
-      await new Promise(r => setTimeout(r, 1000));
-      setLoadingPhase('done');
-      await new Promise(r => setTimeout(r, 1400));
-      setIsMonkEntering(false);
-      setIsSettled(true);
-      setMessages([{ id: 'init', role: 'model', text: "I am here. The noise of the world cannot reach us in this place. Show me your burdens, speak them, or write them into the dust. What is on your mind?", isNew: true }]);
-    };
-    sequence();
-  }, [loadingPhase, initAudio, strikeBowl, strikeZenBell, isMusicEnabled, updateAudioMix]);
+  const enterSanctuary = useCallback(() => { if (loadingPhase !== 'reveal-instruction') return; setLoadingPhase('entering'); strikeZenBell(1.0); initAudio(); if (ambientContextRef.current && masterGainRef.current) { updateAudioMix('chat'); } const sequence = async () => { await new Promise(r => setTimeout(r, 1500)); setIsOverlayFading(true); await new Promise(r => setTimeout(r, 800)); setIsMonkEntering(true); await new Promise(r => setTimeout(r, 1000)); setLoadingPhase('done'); await new Promise(r => setTimeout(r, 1400)); setIsMonkEntering(false); setIsSettled(true); setMessages([{ id: 'init', role: 'model', text: "I am here. The noise of the world cannot reach us in this place. What is on your mind?", isNew: true }]); }; sequence(); }, [loadingPhase, initAudio, strikeZenBell, updateAudioMix]);
 
   useEffect(() => {
     setLoadingQuote(LOADING_QUOTES[Math.floor(Math.random() * LOADING_QUOTES.length)]);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    chatRef.current = ai.chats.create({
-      model: 'gemini-3-flash-preview',
-      config: {
-        systemInstruction: `You are an enlightened Buddhist monk. 
-        Speak as a human who has transcended the noise. Simple, concise, heart-centered.
-        If the user shares an image, look deeply into it for metaphors of impermanence, nature, or the human condition.
-        Use **bold** for profound truths. Use *italics* for gentle emphasis.`,
-      }
-    });
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-      recognition.onresult = (event: any) => {
-        const text = event.results[0][0].transcript;
-        setInput(prev => (prev ? prev + " " + text : text));
-        setIsListening(false);
-      };
-      recognition.onend = () => setIsListening(false);
-      recognition.onerror = () => setIsListening(false);
-      recognitionRef.current = recognition;
-    }
+    chatRef.current = ai.chats.create({ model: 'gemini-3-flash-preview', config: { systemInstruction: `You are an enlightened Buddhist monk. Speak concisely and profoundly.`, } });
   }, []);
 
-  // --- Trigger audio mix update when music is toggled ---
-  useEffect(() => {
-    updateAudioMix(viewMode);
-  }, [isMusicEnabled, updateAudioMix, viewMode]);
-
-  const playTTS = useCallback(async (text: string, msgId: string, isAuto: boolean = false) => {
-    if (isAuto && !isAudioEnabled) {
-      setIsSpeaking(false);
-      return;
-    }
-    if (audioContext.state === 'suspended') await audioContext.resume();
-    if (currentAudioSource) { try { currentAudioSource.stop(); } catch (e) {} }
-
-    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPlaying: true } : m));
-    setIsSpeaking(true);
-    try {
-      const buffer = await generateSpeech(text, audioContext);
-      const source = audioContext.createBufferSource();
-      source.buffer = buffer;
-      const bassFilter = audioContext.createBiquadFilter();
-      bassFilter.type = 'lowshelf';
-      bassFilter.frequency.value = 200;
-      bassFilter.gain.value = 8;
-      source.connect(bassFilter);
-      bassFilter.connect(audioContext.destination);
-      source.onended = () => {
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPlaying: false } : m));
-        setIsSpeaking(false);
-        setCurrentAudioSource(null);
-      };
-      source.start();
-      setCurrentAudioSource(source);
-    } catch (e) {
-      console.error(e);
-      setIsSpeaking(false);
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isPlaying: false } : m));
-    }
-  }, [isAudioEnabled, currentAudioSource]);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAttachedImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const toggleListening = () => {
-    if (!recognitionRef.current) return;
-    if (isListening) {
-      recognitionRef.current.stop();
-    } else {
-      setIsListening(true);
-      recognitionRef.current.start();
-    }
-  };
+  useEffect(() => { updateAudioMix(viewMode); }, [isMusicEnabled, updateAudioMix, viewMode]);
 
   const handleSend = async () => {
-    if ((!input.trim() && !attachedImage) || isThinking || !isSettled) return;
-    strikeZenBell(1.1);
-    
-    const userMsg: Message = { 
-      id: Date.now().toString(), 
-      role: 'user', 
-      text: input,
-      image: attachedImage || undefined
-    };
-    
-    setMessages(prev => {
-        const cleaned = prev.map(m => ({ ...m, isNew: false }));
-        return [...cleaned, userMsg];
-    });
-    
-    const currentInput = input;
-    const currentImage = attachedImage;
-    
-    setInput("");
-    setAttachedImage(null);
-    setIsThinking(true);
-    setIsTyping(true);
-
+    if ((!input.trim() && !attachedImage) || isThinking || !isSettled) return; strikeZenBell(1.1);
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', text: input, image: attachedImage || undefined }; setMessages(prev => [...prev.map(m => ({ ...m, isNew: false })), userMsg]);
+    const ci = input; const cimg = attachedImage; setInput(""); setAttachedImage(null); setIsThinking(true); setIsTyping(true);
     try {
-      let result;
-      if (currentImage) {
-        const base64Data = currentImage.split(',')[1];
-        const imagePart = {
-          inlineData: {
-            data: base64Data,
-            mimeType: 'image/png' 
-          }
-        };
-        const textPart = { text: currentInput || "Reflect on this image." };
-        
-        result = await chatRef.current.sendMessageStream({ 
-          content: { parts: [imagePart, textPart] }
-        });
+      let r; 
+      if (cimg) { 
+        const b64 = cimg.split(',')[1]; 
+        r = await chatRef.current.sendMessageStream({ 
+          message: [
+            { inlineData: { data: b64, mimeType: 'image/png' } }, 
+            { text: ci || "Reflect." }
+          ] 
+        }); 
       } else {
-        result = await chatRef.current.sendMessageStream({ message: currentInput });
+        r = await chatRef.current.sendMessageStream({ message: ci });
       }
-
-      const modelMsgId = (Date.now() + 1).toString();
-      let fullText = "";
-      setMessages(prev => [...prev, { id: modelMsgId, role: 'model', text: "", isNew: true }]);
-      setIsSpeaking(true);
-      
-      for await (const chunk of result) {
-        fullText += chunk.text;
-        setMessages(prev => prev.map(msg => msg.id === modelMsgId ? { ...msg, text: fullText } : msg));
-      }
-      
-      if (isAudioEnabled) {
-        await playTTS(fullText, modelMsgId, true);
-      } else {
-        setIsSpeaking(false);
-      }
-    } catch (e) {
-      console.error(e);
+      const mid = (Date.now() + 1).toString(); let ft = ""; setMessages(prev => [...prev, { id: mid, role: 'model', text: "", isNew: true }]); setIsSpeaking(true);
+      for await (const chunk of r) { ft += chunk.text; setMessages(prev => prev.map(msg => msg.id === mid ? { ...msg, text: ft } : msg)); }
       setIsSpeaking(false);
-      setIsTyping(false);
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "The path is obscured. Breathe and speak again.", isNew: true }]);
-    } finally { 
-      setIsThinking(false); 
-    }
+    } catch (e) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "Breathe and speak again.", isNew: true }]); setIsSpeaking(false); } finally { setIsThinking(false); }
   };
 
-  const handleModeSwitch = (mode: ViewMode) => {
-    if (viewMode === mode) return;
-    setIsTransitioning(true);
-    updateAudioMix(mode);
-    setTimeout(() => {
-      setViewMode(mode);
-      setIsTransitioning(false);
-    }, 500);
-  };
+  const handleModeSwitch = (mode: ViewMode) => { if (viewMode === mode) return; setIsTransitioning(true); updateAudioMix(mode); setTimeout(() => { setViewMode(mode); setIsTransitioning(false); }, 500); };
 
-  const handleOverlayClick = () => {
-    if (loadingPhase === 'init') startIntroSequence();
-    else if (loadingPhase === 'reveal-instruction') enterSanctuary();
-  };
-
-  // --- Swipe Handling ---
-  const onTouchStart = (e: React.TouchEvent) => {
-    touchEnd.current = null; 
-    touchStart.current = { x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY };
-  };
-
-  const onTouchMove = (e: React.TouchEvent) => {
-    touchEnd.current = { x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY };
-  };
-
-  const onTouchEnd = () => {
-    if (!touchStart.current || !touchEnd.current || isTransitioning) return;
-    const distanceX = touchStart.current.x - touchEnd.current.x;
-    const distanceY = touchStart.current.y - touchEnd.current.y;
-    const isLeftSwipe = distanceX > 50;
-    const isRightSwipe = distanceX < -50;
-
-    if (Math.abs(distanceX) > Math.abs(distanceY)) {
-        if (isLeftSwipe) {
-             // Swipe Left (Next)
-             if (viewMode === 'journal') handleModeSwitch('chat');
-             else if (viewMode === 'chat') handleModeSwitch('breathe');
-             else if (viewMode === 'breathe') handleModeSwitch('focus');
-        } else if (isRightSwipe) {
-             // Swipe Right (Prev)
-             if (viewMode === 'focus') handleModeSwitch('breathe');
-             else if (viewMode === 'breathe') handleModeSwitch('chat');
-             else if (viewMode === 'chat') handleModeSwitch('journal');
-        }
-    }
-  };
-
-  const isLogoVisible = ['logo-bloom', 'shift-and-quote', 'reveal-instruction', 'entering'].includes(loadingPhase);
-  const isQuoteVisible = ['shift-and-quote', 'reveal-instruction', 'entering'].includes(loadingPhase);
-
-  useEffect(() => {
-    if (scrollRef.current && viewMode === 'chat') {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isThinking, attachedImage, viewMode]);
+  useEffect(() => { if (scrollRef.current && viewMode === 'chat') scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, isThinking, viewMode]);
 
   return (
-    <div 
-      className="fixed inset-0 w-full h-full flex flex-col bg-[#12100e] text-stone-300 overflow-hidden site-entrance" 
-      onClick={handleOverlayClick}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    >
-      
-      {isSettled && (
-        <HeaderControls 
-          isMusic={isMusicEnabled} 
-          toggleMusic={() => setIsMusicEnabled(prev => !prev)}
-          isVoice={isAudioEnabled}
-          toggleVoice={() => setIsAudioEnabled(prev => !prev)}
-          onAboutClick={() => setShowAbout(true)}
-          hidden={isImmersive}
-        />
-      )}
-
+    <div className="fixed inset-0 w-full h-full flex flex-col bg-[#12100e] text-stone-300 overflow-hidden site-entrance" onClick={() => loadingPhase === 'init' ? startIntroSequence() : loadingPhase === 'reveal-instruction' && enterSanctuary()}>
+      {isSettled && <HeaderControls isMusic={isMusicEnabled} toggleMusic={() => setIsMusicEnabled(prev => !prev)} isVoice={isAudioEnabled} toggleVoice={() => setIsAudioEnabled(prev => !prev)} onAboutClick={() => setShowAbout(true)} hidden={isImmersive} />}
       <AboutModal isOpen={showAbout} onClose={() => setShowAbout(false)} />
-
       {loadingPhase !== 'done' && (
         <div className={`fixed inset-0 z-[100] bg-[#12100e] flex flex-col items-center justify-center overflow-hidden transition-opacity duration-[2000ms] ${isOverlayFading ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-          <div className="absolute inset-0 bg-radial-glow opacity-10 pointer-events-none" />
-          
-          <div className={`flex flex-col items-center justify-center w-full h-full px-8 transition-opacity duration-[1000ms] ${loadingPhase === 'init' ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-             <div className="headphones-visual mb-12 flex items-center justify-center">
-                <div className="ripple ripple-1" />
-                <div className="ripple ripple-2" />
-                <div className="ripple ripple-3" />
-                <div className="ripple ripple-4" />
-                <div className="relative z-10 w-20 h-20 text-[#d4af37] opacity-60">
-                   <HeadphoneIcon className="w-full h-full" />
-                </div>
-             </div>
-             <p className="text-stone-400 text-[10px] sm:text-xs uppercase tracking-[0.2em] font-light mb-16 opacity-80 text-center">Please wear headphones for the best experience</p>
-             <button className="px-12 py-4 border border-stone-800 text-stone-300 text-[10px] uppercase tracking-[0.4em] rounded-full hover:border-[#d4af37]/40 hover:text-stone-100 transition-all duration-700 bg-stone-900/40 backdrop-blur-md shadow-2xl">
-               Begin
-             </button>
+          <div className={`flex flex-col items-center justify-center px-8 transition-opacity duration-[1000ms] ${loadingPhase === 'init' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+             <div className="headphones-visual mb-12 flex items-center justify-center"><div className="ripple ripple-1" /><div className="relative z-10 w-20 h-20 text-[#d4af37] opacity-60"><HeadphoneIcon className="w-full h-full" /></div></div>
+             <p className="text-stone-400 text-[10px] uppercase tracking-[0.2em] mb-16 opacity-80 text-center">Please wear headphones</p>
+             <button className="px-12 py-4 border border-stone-800 text-stone-300 text-[10px] uppercase tracking-[0.4em] rounded-full">Begin</button>
           </div>
-
-          <div className={`absolute inset-0 flex flex-col items-center justify-center transition-opacity duration-1000 ${isLogoVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-            
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[200px] flex flex-col items-center justify-center transition-all duration-1000 ${loadingPhase === 'entering' ? 'scale-[1.05] opacity-0 blur-md' : 'scale-100 opacity-100 blur-0'}`}>
-              <div className="relative mb-8">
-                 <div className={`absolute inset-0 bg-[#d4af37] blur-[60px] rounded-full scale-[2.5] transition-opacity duration-1000 ${loadingPhase === 'entering' ? 'opacity-0' : 'opacity-25'}`} />
-                 <LotusIcon size={90} className="relative z-10" isErasing={loadingPhase === 'entering'} />
-              </div>
-              <h1 className="text-[#d4af37] font-serif text-lg sm:text-xl tracking-[0.2em] sm:tracking-[0.5em] uppercase drop-shadow-lg text-center whitespace-nowrap">
-                The Silent Temple
-              </h1>
-            </div>
-
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[-20px] w-full max-w-xl px-12 text-center transition-all duration-[2000ms] flex flex-col gap-4 ${isQuoteVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'} ${loadingPhase === 'entering' ? 'opacity-0 scale-105' : ''}`}>
-               <p className="text-stone-500 font-serif text-lg md:text-xl italic tracking-wide leading-relaxed">
-                 "{loadingQuote?.text}"
-               </p>
-               <span className="text-stone-700 font-serif text-sm tracking-[0.1em] opacity-80">
-                 — {loadingQuote?.source}
-               </span>
-            </div>
-
-            <div className={`absolute bottom-24 transition-all duration-[1000ms] ${loadingPhase === 'reveal-instruction' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-               <span className="text-[10px] uppercase tracking-[0.6em] text-[#d4af37] font-medium animate-pulse cursor-pointer">
-                 Tap to step inside
-               </span>
-            </div>
+          <div className={`absolute inset-0 flex flex-col items-center justify-center transition-opacity duration-1000 ${['logo-bloom', 'shift-and-quote', 'reveal-instruction', 'entering'].includes(loadingPhase) ? 'opacity-100' : 'opacity-0'}`}>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[200px] flex flex-col items-center transition-all duration-1000 ${loadingPhase === 'entering' ? 'opacity-0' : 'opacity-100'}`}><LotusIcon size={90} isErasing={loadingPhase === 'entering'} /><h1 className="text-[#d4af37] font-serif text-lg tracking-[0.5em] uppercase mt-8">The Silent Temple</h1></div>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[-20px] w-full max-w-xl px-12 text-center transition-all duration-[2000ms] ${['shift-and-quote', 'reveal-instruction', 'entering'].includes(loadingPhase) ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'} ${loadingPhase === 'entering' ? 'opacity-0' : ''}`}><p className="text-stone-500 font-serif text-lg md:text-xl italic leading-relaxed">"{loadingQuote?.text}"</p><span className="text-stone-700 font-serif text-sm block mt-4">— {loadingQuote?.source}</span></div>
+            <div className={`absolute bottom-24 transition-all duration-[1000ms] ${loadingPhase === 'reveal-instruction' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}><span className="text-[10px] uppercase tracking-[0.6em] text-[#d4af37] animate-pulse">Tap to step inside</span></div>
           </div>
         </div>
       )}
-
-      <header className={`flex-shrink-0 relative flex flex-col items-center justify-end transition-all duration-1000 temple-glow border-b border-stone-900/40 pt-[env(safe-area-inset-top)] 
-        ${isImmersive ? 'h-0 opacity-0 overflow-hidden' : (viewMode === 'chat' ? 'h-[25vh] md:h-[35vh] pb-2' : 'h-[20vh] md:h-[25vh] pb-2')}`}>
-        <div className="absolute inset-x-0 bottom-0 h-[1px] bg-gradient-to-r from-transparent via-stone-800/20 to-transparent" />
+      <header className={`flex-shrink-0 relative flex flex-col items-center justify-end transition-all duration-1000 border-b border-stone-900/40 pt-[env(safe-area-inset-top)] ${isImmersive ? 'h-0 opacity-0' : (viewMode === 'chat' ? 'h-[35vh]' : 'h-[25vh]')}`}>
         {(isMonkEntering || isSettled) && (
           <div className="relative flex flex-col items-center">
-            {viewMode === 'chat' ? (
-               <div className={`transition-opacity duration-500 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
-                <MonkAvatar isActive={isActive} isEntering={isMonkEntering} />
-                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-center w-full">
-                   <h2 className="text-[7px] tracking-[0.8em] text-stone-700 uppercase font-light opacity-50">Stillness is Presence</h2>
-                </div>
-               </div>
-            ) : (
-                <div className={`mb-2 md:mb-4 text-[#d4af37] opacity-60 transition-opacity duration-500 relative w-10 h-10 md:w-16 md:h-16 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
-                   {/* Unified Morphing Icon for non-chat modes */}
-                   <MorphingHeaderIcon mode={viewMode} />
-                </div>
-            )}
-            
-            {/* Mode Switcher Navigation */}
-            <div className={`flex items-center gap-6 mt-2 md:mt-4 transition-all duration-700 ${viewMode === 'chat' ? 'translate-y-0' : 'translate-y-2'}`}>
-               {/* 1. Journal (Left) */}
-               <button 
-                 onClick={(e) => { e.stopPropagation(); handleModeSwitch('journal'); }} 
-                 className={`p-2 transition-all duration-300 ${viewMode === 'journal' ? 'text-[#d4af37] scale-110' : 'text-stone-700 hover:text-stone-500'}`}
-                 title="Burner Journal"
-               >
-                 <FireIcon className="w-5 h-5" />
-               </button>
-
-               {/* 2. Chat (Center) */}
-               <button 
-                 onClick={(e) => { e.stopPropagation(); handleModeSwitch('chat'); }} 
-                 className={`p-2 transition-all duration-300 ${viewMode === 'chat' ? 'text-[#d4af37] scale-110' : 'text-stone-700 hover:text-stone-500'}`}
-                 title="Chat"
-               >
-                 <ChatIcon className="w-5 h-5" />
-               </button>
-
-               {/* 3. Breathe (Right) */}
-               <button 
-                 onClick={(e) => { e.stopPropagation(); handleModeSwitch('breathe'); }} 
-                 className={`p-2 transition-all duration-300 ${viewMode === 'breathe' ? 'text-[#d4af37] scale-110' : 'text-stone-700 hover:text-stone-500'}`}
-                 title="Breathe"
-               >
-                 <MeditatingFigureIcon className="w-5 h-5" />
-               </button>
-
-                {/* 4. Focus (Far Right) */}
-               <button 
-                 onClick={(e) => { e.stopPropagation(); handleModeSwitch('focus'); }} 
-                 className={`p-2 transition-all duration-300 ${viewMode === 'focus' ? 'text-[#d4af37] scale-110' : 'text-stone-700 hover:text-stone-500'}`}
-                 title="The Focus"
-               >
-                 <HourglassIcon className="w-5 h-5" />
-               </button>
+            {viewMode === 'chat' ? ( <div className={`transition-opacity duration-500 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}><MonkAvatar isActive={isActive} isEntering={isMonkEntering} /></div> ) : ( <div className={`mb-4 text-[#d4af37] opacity-60 w-16 h-16 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}><MorphingHeaderIcon mode={viewMode} /></div> )}
+            <div className="flex items-center gap-6 mt-4">
+               <button onClick={(e) => { e.stopPropagation(); handleModeSwitch('journal'); }} className={`p-2 ${viewMode === 'journal' ? 'text-[#d4af37]' : 'text-stone-700'}`}><FireIcon className="w-5 h-5" /></button>
+               <button onClick={(e) => { e.stopPropagation(); handleModeSwitch('chat'); }} className={`p-2 ${viewMode === 'chat' ? 'text-[#d4af37]' : 'text-stone-700'}`}><ChatIcon className="w-5 h-5" /></button>
+               <button onClick={(e) => { e.stopPropagation(); handleModeSwitch('breathe'); }} className={`p-2 ${viewMode === 'breathe' ? 'text-[#d4af37]' : 'text-stone-700'}`}><BreathIcon className="w-5 h-5" /></button>
+               <button onClick={(e) => { e.stopPropagation(); handleModeSwitch('focus'); }} className={`p-2 ${viewMode === 'focus' ? 'text-[#d4af37]' : 'text-stone-700'}`}><HourglassIcon className="w-5 h-5" /></button>
             </div>
           </div>
         )}
       </header>
-
-      <main ref={scrollRef} className="flex-1 overflow-y-auto px-6 md:px-12 py-8 md:py-12 w-full max-w-3xl mx-auto temple-floor scroll-smooth relative overscroll-y-contain">
-        <div className={`transition-all duration-500 ease-in-out h-full ${isTransitioning ? 'opacity-0 translate-y-4 filter blur-sm' : 'opacity-100 translate-y-0 filter blur-0'}`}>
-            {viewMode === 'chat' && (
-              <div className="space-y-12 md:space-y-16">
-                {messages.map((msg) => (
-                  <div key={msg.id} className={`flex w-full message-fade-in ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    {msg.role === 'model' ? (
-                      <div className="flex flex-col gap-4 max-w-full">
-                        <div className="text-stone-500 font-serif text-base md:text-xl leading-relaxed whitespace-pre-wrap font-light tracking-wide text-left">
-                          {msg.isNew ? (
-                            <TypewriterText 
-                               text={msg.text} 
-                               isStreaming={isThinking} 
-                               onDone={() => setIsTyping(false)} 
-                            />
-                          ) : (
-                            <FormattedText text={msg.text} />
-                          )}
-                        </div>
-                        {!isThinking && msg.text && (
-                          <button onClick={(e) => { e.stopPropagation(); playTTS(msg.text, msg.id); }} className={`self-start px-3 py-1 rounded-full border border-stone-800/30 flex items-center gap-3 text-[7px] uppercase tracking-[0.4em] font-light transition-all ${msg.isPlaying ? 'text-[#d4af37] border-[#d4af37]/20 bg-stone-900/40' : 'text-stone-800 hover:text-stone-600'}`}>
-                            {msg.isPlaying ? "Resonating..." : "Listen"}
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-end gap-2 max-w-[85%]">
-                        {msg.image && (
-                           <div className="rounded-lg overflow-hidden border border-stone-800/40 opacity-80 mb-2">
-                             <img src={msg.image} alt="User attachment" className="max-w-[150px] max-h-[150px] object-cover" />
-                           </div>
-                        )}
-                        <div className="bg-stone-900/5 border border-stone-800/10 text-stone-600 px-6 py-4 italic font-serif text-sm md:text-base tracking-widest leading-relaxed">
-                          "{msg.text}"
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {isThinking && <div className="flex justify-start items-center gap-3 opacity-30 text-stone-700 italic font-light text-[9px] tracking-[0.4em] uppercase animate-pulse">Reflecting...</div>}
-                <div className="h-20" />
-              </div>
-            )}
-
+      <main ref={scrollRef} className="flex-1 overflow-y-auto px-6 md:px-12 py-12 w-full max-w-3xl mx-auto scroll-smooth relative overscroll-y-contain">
+        <div className={`transition-all duration-500 h-full ${isTransitioning ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
+            {viewMode === 'chat' && ( <div className="space-y-12">{messages.map((msg) => ( <div key={msg.id} className={`flex w-full message-fade-in ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>{msg.role === 'model' ? ( <div className="flex flex-col gap-4 max-w-full text-stone-500 font-serif text-lg font-light">{msg.isNew ? <TypewriterText text={msg.text} isStreaming={isThinking} onDone={() => setIsTyping(false)} /> : <FormattedText text={msg.text} />}</div> ) : ( <div className="flex flex-col items-end gap-2 max-w-[85%]">{msg.image && <img src={msg.image} className="w-32 h-32 object-cover rounded mb-2 border border-stone-800" />}<div className="bg-stone-900/5 px-6 py-4 italic font-serif tracking-widest leading-relaxed text-stone-600">"{msg.text}"</div></div> )}</div> ))}{isThinking && <div className="opacity-30 italic text-[9px] uppercase animate-pulse">Reflecting...</div>}<div className="h-20" /></div> )}
             {viewMode === 'breathe' && (
-                <BreathingView 
-                    isActive={viewMode === 'breathe' && !isTransitioning} 
-                    setBreathingAudioActive={(active) => updateAudioMix('breathe', active)}
-                    onImmersiveChange={setIsImmersive}
-                />
+              <BreathingView 
+                isActive={true} 
+                onImmersiveChange={setIsImmersive} 
+                onPhaseChange={(p) => updateAudioMix('breathe', p)} 
+              />
             )}
-            
             {viewMode === 'journal' && <BurnerJournalView isAudioEnabled={isAudioEnabled} />}
-
-            {viewMode === 'focus' && (
-                <PomodoroView 
-                   isActive={viewMode === 'focus' && !isTransitioning}
-                   onTimerComplete={() => strikeZenBell(1.2)} // Work finish = Lower bell
-                   onRestoreComplete={playRestoreCompleteChime} // Break finish = New soft melody
-                   onStart={playStartChime}
-                />
-            )}
+            {viewMode === 'focus' && <PomodoroView isActive={viewMode === 'focus' && !isTransitioning} onTimerComplete={() => strikeZenBell(1.2)} onRestoreComplete={playStartChime} onStart={playStartChime} />}
         </div>
       </main>
-
-      {/* Chat Input Footer - Only visible in Chat Mode */}
-      {viewMode === 'chat' && (
-        <footer className={`flex-shrink-0 px-4 pt-4 pb-[env(safe-area-inset-bottom)] md:p-12 bg-gradient-to-t from-[#12100e] via-[#12100e]/98 to-transparent relative z-30 transition-all duration-500 ${isTransitioning ? 'opacity-0 translate-y-10' : 'opacity-100 translate-y-0'}`} onClick={(e) => e.stopPropagation()}>
-          
-          {/* Attachment Preview */}
-          {attachedImage && (
-            <div className="absolute top-0 left-12 -translate-y-full mb-4 animate-in fade-in slide-in-from-bottom-4">
-              <div className="relative group">
-                <img src={attachedImage} alt="Preview" className="w-16 h-16 object-cover rounded-md border border-[#d4af37]/30 shadow-[0_0_15px_rgba(212,175,55,0.1)]" />
-                <button 
-                  onClick={() => setAttachedImage(null)}
-                  className="absolute -top-2 -right-2 bg-stone-900 text-stone-400 rounded-full p-1 border border-stone-700 hover:text-white"
-                >
-                  <XIcon className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="max-w-xl mx-auto relative group input-glow-container flex items-center gap-3">
-            
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileSelect} 
-              accept="image/*" 
-              className="hidden" 
-            />
-            
-            <div className="relative flex-grow">
-               <input 
-                type="text" 
-                value={input} 
-                onChange={(e) => setInput(e.target.value)} 
-                onKeyDown={(e) => e.key === 'Enter' && handleSend()} 
-                placeholder={isSettled ? (attachedImage ? "Ask about this image..." : "Exhale your words...") : "Waiting..."} 
-                className="w-full bg-stone-900/70 text-stone-300 placeholder-stone-700 pl-12 pr-20 py-5 rounded-full outline-none border border-stone-800/40 backdrop-blur-3xl font-serif text-base tracking-[0.1em] transition-all focus:border-[#d4af37]/30 shadow-2xl" 
-                enterKeyHint="send"
-                disabled={isThinking || !isSettled} 
-              />
-              
-              {/* Attachment Button */}
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute left-4 top-1/2 -translate-y-1/2 w-8 h-8 text-stone-600 hover:text-[#d4af37] transition-colors"
-                title="Show image"
-              >
-                <CameraIcon className="w-5 h-5" />
-              </button>
-
-              {/* Voice & Send Buttons */}
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                {input.length === 0 && !attachedImage ? (
-                  <button 
-                    onClick={toggleListening}
-                    className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isListening ? 'text-[#d4af37] bg-stone-800/50 animate-pulse' : 'text-stone-600 hover:text-stone-400'}`}
-                    title="Speak"
-                  >
-                    <MicIcon className="w-5 h-5" />
-                  </button>
-                ) : (
-                  <button 
-                    onClick={handleSend} 
-                    disabled={isThinking || !isSettled} 
-                    className="w-10 h-10 text-stone-700 rounded-full flex items-center justify-center transition-all hover:text-[#d4af37] disabled:opacity-0"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </footer>
-      )}
+      {viewMode === 'chat' && ( <footer className="px-4 pb-[env(safe-area-inset-bottom)] md:p-12 relative z-30" onClick={(e) => e.stopPropagation()}><div className="max-w-xl mx-auto flex items-center gap-3"><input type="file" ref={fileInputRef} onChange={(e) => { const f = e.target.files?.[0]; if (f) { const r = new FileReader(); r.onloadend = () => setAttachedImage(r.result as string); r.readAsDataURL(f); } }} accept="image/*" className="hidden" /><div className="relative flex-grow"><input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Exhale your words..." className="w-full bg-stone-900/70 text-stone-300 pl-12 pr-20 py-5 rounded-full outline-none border border-stone-800/40 backdrop-blur-3xl" disabled={isThinking || !isSettled} /><button onClick={() => fileInputRef.current?.click()} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-600"><CameraIcon className="w-5 h-5" /></button><div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">{input.length === 0 && !attachedImage ? <button className="w-10 h-10 text-stone-600"><MicIcon className="w-5 h-5" /></button> : <button onClick={handleSend} disabled={isThinking} className="w-10 h-10 text-stone-700"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>}</div></div></div></footer> )}
     </div>
   );
 };
