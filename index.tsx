@@ -88,23 +88,6 @@ async function decodeAudioData(
   return buffer;
 }
 
-async function generateSpeech(text: string, ctx: AudioContext): Promise<AudioBuffer> {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: text }] }],
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Charon' } } },
-    },
-  });
-  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (!base64Audio) throw new Error("Audio generation failed");
-  
-  const decodedData = decode(base64Audio);
-  return await decodeAudioData(decodedData, ctx, 24000, 1);
-}
-
 // --- Icons & Components ---
 
 const FormattedText = ({ text }: { text: string }) => {
@@ -121,7 +104,7 @@ const FormattedText = ({ text }: { text: string }) => {
           <span key={i}>
             {italicParts.map((subPart, j) => {
               if (subPart.startsWith('*') && subPart.endsWith('*')) {
-                return <em key={j} className="italic text-[#d4af37]/90 drop-shadow-[0_0_8px_rgba(212,175,55,0.2)]">{subPart.slice(1, -1)}</em>;
+                return <em key={j} className="italic text-[#d4af37] font-medium drop-shadow-[0_0_8px_rgba(212,175,55,0.3)]">{subPart.slice(1, -1)}</em>;
               }
               return subPart;
             })}
@@ -883,18 +866,17 @@ const App = () => {
     setLoadingQuote(LOADING_QUOTES[Math.floor(Math.random() * LOADING_QUOTES.length)]);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     chatRef.current = ai.chats.create({ 
-      model: 'gemini-3-pro-preview', 
+      model: 'gemini-3-flash-preview', 
       config: { 
-        systemInstruction: `You are an enlightened Buddhist monk and a compassionate teacher. 
-        Your goal is to guide the user toward inner peace and clarity through deep, philosophical, yet accessible wisdom.
+        systemInstruction: `You are an enlightened Buddhist monk and a compassionate teacher in 'The Silent Temple'. 
+        You provide deep, philosophical guidance while explaining concepts through simple metaphors (rivers, gardens, tea, clouds) that a normal listener can easily grasp.
         
-        Guidelines for your voice:
-        1. Tone: Warm, patient, and profoundly thoughtful. 
-        2. Depth: Do not give superficial or "short" answers. Explore the user's concerns with philosophical depth, but explain them in simple terms that a "normal listener" can grasp.
-        3. Metaphors: Use natural metaphors (rivers, mountains, clouds, tea, gardens) to illustrate your points.
-        4. Emphasis: Use *gold italics* (wrap keywords or phrases in single asterisks like *this*) to highlight spiritually significant concepts, path-markers, or moments of realization.
-        5. Structure: Share your wisdom like a story or a gentle lesson. Be the mirror that reflects the user's true self.
-        6. Persona: You are the guardian of "The Silent Temple". You speak as if you are sitting across from them, pouring tea in a quiet room while the rain falls outside.`, 
+        Mandatory rules:
+        1. Tone: Profound, patient, and warm. Avoid clinical or robotic language.
+        2. Depth: Provide rich, multi-sentence responses. Do not be brief. Explore the user's situation from a spiritual and philosophical angle.
+        3. Emphasis: Highlight spiritually significant concepts, path-markers, or key insights using *gold italics* (wrap them in single asterisks like *peace*).
+        4. Simple Teacher: Act as a master who makes the complex simple. Be the mirror for the user's mind.
+        5. Flow: Your words should flow like a slow stream—deliberate and clear.`, 
       } 
     });
   }, []);
@@ -912,7 +894,7 @@ const App = () => {
         r = await chatRef.current.sendMessageStream({ 
           message: [
             { inlineData: { data: b64, mimeType: 'image/png' } }, 
-            { text: ci || "I present this image for your reflection." }
+            { text: ci || "Reflect upon this image." }
           ] 
         }); 
       } else {
@@ -921,7 +903,7 @@ const App = () => {
       const mid = (Date.now() + 1).toString(); let ft = ""; setMessages(prev => [...prev, { id: mid, role: 'model', text: "", isNew: true }]); setIsSpeaking(true);
       for await (const chunk of r) { ft += chunk.text; setMessages(prev => prev.map(msg => msg.id === mid ? { ...msg, text: ft } : msg)); }
       setIsSpeaking(false);
-    } catch (e) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "The clouds are heavy right now. Breathe with me, and *try again* when the air is clear.", isNew: true }]); setIsSpeaking(false); } finally { setIsThinking(false); }
+    } catch (e) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "The path is momentarily obscured by mist. *Breathe* with me, and we shall try again when the air settles.", isNew: true }]); setIsSpeaking(false); } finally { setIsThinking(false); }
   };
 
   const handleModeSwitch = (mode: ViewMode) => { if (viewMode === mode) return; setIsTransitioning(true); updateAudioMix(mode); setTimeout(() => { setViewMode(mode); setIsTransitioning(false); }, 500); };
