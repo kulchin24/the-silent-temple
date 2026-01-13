@@ -117,7 +117,7 @@ const FormattedText = ({ text }: { text: string }) => {
 
 const LotusIcon = ({ size = 24, className = "", isErasing = false }: { size?: number, className?: string, isErasing?: boolean }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#d4af37" strokeWidth="0.75" strokeLinecap="round" strokeLinejoin="round" className={`${className} ${isErasing ? 'erasing' : ''}`}>
-    <path className="erase-path p1" d="M12 2C12 2 16 8 16 12C16 16 12 22 12 22C12 22 8 16 8 12C8 8 12 2 12 2Z" />
+    <path className="erase-path p1" d="M12 2C12 2 16 8 16 12C16 12 12 22 12 22C12 22 8 16 8 12C8 8 12 2 12 2Z" />
     <path className="erase-path p2" d="M12 22C12 22 17 18 20 15C23 12 20 8 18 8" />
     <path className="erase-path p3" d="M12 22C12 22 7 18 4 15C1 12 4 8 6 8" />
   </svg>
@@ -719,87 +719,94 @@ const App = () => {
   }, []);
 
   const playRandomBackgroundMusic = useCallback(() => {
-    // 1. Stop any existing music first (essential!)
     if (backgroundMusicRef.current) {
       const oldAudio = backgroundMusicRef.current;
-      // Quick fade out old track
       const fadeOut = setInterval(() => {
         if (oldAudio.volume > 0.05) oldAudio.volume -= 0.05;
         else { oldAudio.pause(); clearInterval(fadeOut); }
       }, 100);
     }
     
-    // 2. Pick a random track (1 to 15)
     const trackNum = Math.floor(Math.random() * 15) + 1;
     const audioPath = `/music/zen${trackNum}.mp3`;
 
-    // 3. Create new audio instance
     const audio = new Audio(audioPath);
-    audio.loop = true; // Loop this track indefinitely until they leave
-    audio.volume = 0;  // Start silent
+    audio.loop = true;
+    audio.volume = 0; 
 
     audio.play().catch(e => console.error("Background music failed:", e));
     backgroundMusicRef.current = audio;
 
-    // 4. Slow, luxurious fade-in (5 seconds)
     const fadeIn = setInterval(() => {
-        // Only fade in if music is actually enabled
-        if (!isMusicEnabled) {
+        if (!isMusicEnabled || viewMode !== 'chat') {
           audio.volume = 0;
           clearInterval(fadeIn);
           return;
         }
-        // Cap volume at 0.4 so it doesn't overpower the voice/chat
         if (audio.volume < 0.4) {
             audio.volume = Math.min(0.4, audio.volume + 0.02);
         } else {
             clearInterval(fadeIn);
         }
     }, 250);
-  }, [isMusicEnabled]);
+  }, [isMusicEnabled, viewMode]);
 
   const updateAudioMix = useCallback((mode: ViewMode, phase?: BreathingPhase) => {
-      if (!ambientContextRef.current || !templeGainRef.current || !breathDroneGainRef.current) return;
-      const ctx = ambientContextRef.current; 
-      const now = ctx.currentTime; 
-      if (!isMusicEnabled) {
-        masterGainRef.current?.gain.setTargetAtTime(0, now, 0.5); 
-        if (backgroundMusicRef.current) backgroundMusicRef.current.volume = 0;
-      } else {
-        masterGainRef.current?.gain.setTargetAtTime(0.8, now, 1);
-        if (backgroundMusicRef.current) backgroundMusicRef.current.volume = 0.4;
-      }
-      if (mode === 'chat') { 
-        templeGainRef.current.gain.setTargetAtTime(1, now, 3); 
-        focusGainRef.current?.gain.setTargetAtTime(0, now, 3);
-        breathDroneGainRef.current?.gain.setTargetAtTime(0, now, 2);
-      }
-      else if (mode === 'breathe') {
-        templeGainRef.current.gain.setTargetAtTime(0, now, 3);
-        focusGainRef.current?.gain.setTargetAtTime(0, now, 3);
-        breathDroneGainRef.current?.gain.setTargetAtTime(1, now, 3);
-        if (breathFilterRef.current) {
-          if (phase === 'inhale') {
-             breathFilterRef.current.frequency.setTargetAtTime(1200, now, 3);
-             breathDroneGainRef.current?.gain.setTargetAtTime(1.4, now, 3);
-          } else if (phase === 'exhale') {
-             breathFilterRef.current.frequency.setTargetAtTime(250, now, 4);
-             breathDroneGainRef.current?.gain.setTargetAtTime(0.4, now, 4);
-          } else {
-             breathFilterRef.current.frequency.setTargetAtTime(500, now, 2);
-          }
+    if (!ambientContextRef.current || !templeGainRef.current || !breathDroneGainRef.current) return;
+    
+    const ctx = ambientContextRef.current;
+    const now = ctx.currentTime;
+
+    // --- 1. Handle Web Audio Master Volume ---
+    if (!isMusicEnabled) {
+      masterGainRef.current?.gain.setTargetAtTime(0, now, 0.5);
+    } else {
+      masterGainRef.current?.gain.setTargetAtTime(0.8, now, 1);
+    }
+
+    // --- 2. Handle MP3 Background Music (The Fix) ---
+    // Only play MP3 music if global music is ON AND we are in 'chat' mode
+    if (backgroundMusicRef.current) {
+        // If music is disabled OR we are NOT in chat mode, volume should be 0
+        const targetMp3Volume = (isMusicEnabled && mode === 'chat') ? 0.4 : 0;
+        
+        // Smoothly transition the HTML Audio element volume
+        backgroundMusicRef.current.volume = targetMp3Volume;
+    }
+
+    // --- 3. Handle Web Audio Mixes ---
+    if (mode === 'chat') {
+      templeGainRef.current.gain.setTargetAtTime(1, now, 3);
+      focusGainRef.current?.gain.setTargetAtTime(0, now, 3);
+      breathDroneGainRef.current?.gain.setTargetAtTime(0, now, 2);
+    } 
+    else if (mode === 'breathe') {
+      templeGainRef.current.gain.setTargetAtTime(0, now, 3);
+      focusGainRef.current?.gain.setTargetAtTime(0, now, 3);
+      breathDroneGainRef.current?.gain.setTargetAtTime(1, now, 3);
+
+      if (breathFilterRef.current) {
+        if (phase === 'inhale') {
+            breathFilterRef.current.frequency.setTargetAtTime(1200, now, 3);
+            breathDroneGainRef.current?.gain.setTargetAtTime(1.4, now, 3);
+        } else if (phase === 'exhale') {
+            breathFilterRef.current.frequency.setTargetAtTime(250, now, 4);
+            breathDroneGainRef.current?.gain.setTargetAtTime(0.4, now, 4);
+        } else {
+            breathFilterRef.current.frequency.setTargetAtTime(500, now, 2);
         }
       }
-      else if (mode === 'focus') { 
-        templeGainRef.current.gain.setTargetAtTime(0, now, 3); 
-        breathDroneGainRef.current?.gain.setTargetAtTime(0, now, 2);
-        focusGainRef.current?.gain.setTargetAtTime(1, now, 3); 
-      }
-      else if (mode === 'journal') { 
-        templeGainRef.current.gain.setTargetAtTime(0.2, now, 3); 
-        breathDroneGainRef.current?.gain.setTargetAtTime(0, now, 2);
-        focusGainRef.current?.gain.setTargetAtTime(0, now, 3); 
-      }
+    } 
+    else if (mode === 'focus') {
+      templeGainRef.current.gain.setTargetAtTime(0, now, 3);
+      breathDroneGainRef.current?.gain.setTargetAtTime(0, now, 2);
+      focusGainRef.current?.gain.setTargetAtTime(1, now, 3);
+    } 
+    else if (mode === 'journal') {
+      templeGainRef.current.gain.setTargetAtTime(0.2, now, 3);
+      breathDroneGainRef.current?.gain.setTargetAtTime(0, now, 2);
+      focusGainRef.current?.gain.setTargetAtTime(0, now, 3);
+    }
   }, [isMusicEnabled]);
 
   const strikeZenBell = useCallback((multiplier = 1.0) => {
@@ -844,7 +851,6 @@ const App = () => {
       updateAudioMix('chat'); 
     } 
     
-    // START THE LOOPS HERE
     playRandomBackgroundMusic();
 
     const sequence = async () => { 
@@ -868,7 +874,6 @@ const App = () => {
     chatRef.current = ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: {
-        // THIS IS THE MONK'S "CODE" / PERSONALITY
       systemInstruction: `You are an enlightened Buddhist monk. 
       Speak as a human who has transcended the noise. Simple, concise, heart-centered.
       If the user shares an image, look deeply into it for metaphors of impermanence, nature, or the human condition.
