@@ -121,7 +121,7 @@ const FormattedText = ({ text }: { text: string }) => {
           <span key={i}>
             {italicParts.map((subPart, j) => {
               if (subPart.startsWith('*') && subPart.endsWith('*')) {
-                return <em key={j} className="italic text-[#d4af37]/80">{subPart.slice(1, -1)}</em>;
+                return <em key={j} className="italic text-[#d4af37]/90 drop-shadow-[0_0_8px_rgba(212,175,55,0.2)]">{subPart.slice(1, -1)}</em>;
               }
               return subPart;
             })}
@@ -874,7 +874,7 @@ const App = () => {
       await new Promise(r => setTimeout(r, 1400)); 
       setIsMonkEntering(false); 
       setIsSettled(true); 
-      setMessages([{ id: 'init', role: 'model', text: "I am here. The noise of the world cannot reach us in this place. What is on your mind?", isNew: true }]); 
+      setMessages([{ id: 'init', role: 'model', text: "I am here. The noise of the world cannot reach us in this place. *Peace* is not the absence of sound, but the presence of *stillness* within. What is on your mind?", isNew: true }]); 
     }; 
     sequence(); 
   }, [loadingPhase, initAudio, strikeZenBell, updateAudioMix, playRandomBackgroundMusic]);
@@ -882,7 +882,21 @@ const App = () => {
   useEffect(() => {
     setLoadingQuote(LOADING_QUOTES[Math.floor(Math.random() * LOADING_QUOTES.length)]);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    chatRef.current = ai.chats.create({ model: 'gemini-3-flash-preview', config: { systemInstruction: `You are an enlightened Buddhist monk. Speak concisely and profoundly.`, } });
+    chatRef.current = ai.chats.create({ 
+      model: 'gemini-3-pro-preview', 
+      config: { 
+        systemInstruction: `You are an enlightened Buddhist monk and a compassionate teacher. 
+        Your goal is to guide the user toward inner peace and clarity through deep, philosophical, yet accessible wisdom.
+        
+        Guidelines for your voice:
+        1. Tone: Warm, patient, and profoundly thoughtful. 
+        2. Depth: Do not give superficial or "short" answers. Explore the user's concerns with philosophical depth, but explain them in simple terms that a "normal listener" can grasp.
+        3. Metaphors: Use natural metaphors (rivers, mountains, clouds, tea, gardens) to illustrate your points.
+        4. Emphasis: Use *gold italics* (wrap keywords or phrases in single asterisks like *this*) to highlight spiritually significant concepts, path-markers, or moments of realization.
+        5. Structure: Share your wisdom like a story or a gentle lesson. Be the mirror that reflects the user's true self.
+        6. Persona: You are the guardian of "The Silent Temple". You speak as if you are sitting across from them, pouring tea in a quiet room while the rain falls outside.`, 
+      } 
+    });
   }, []);
 
   useEffect(() => { updateAudioMix(viewMode); }, [isMusicEnabled, updateAudioMix, viewMode]);
@@ -898,7 +912,7 @@ const App = () => {
         r = await chatRef.current.sendMessageStream({ 
           message: [
             { inlineData: { data: b64, mimeType: 'image/png' } }, 
-            { text: ci || "Reflect." }
+            { text: ci || "I present this image for your reflection." }
           ] 
         }); 
       } else {
@@ -907,7 +921,7 @@ const App = () => {
       const mid = (Date.now() + 1).toString(); let ft = ""; setMessages(prev => [...prev, { id: mid, role: 'model', text: "", isNew: true }]); setIsSpeaking(true);
       for await (const chunk of r) { ft += chunk.text; setMessages(prev => prev.map(msg => msg.id === mid ? { ...msg, text: ft } : msg)); }
       setIsSpeaking(false);
-    } catch (e) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "Breathe and speak again.", isNew: true }]); setIsSpeaking(false); } finally { setIsThinking(false); }
+    } catch (e) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "The clouds are heavy right now. Breathe with me, and *try again* when the air is clear.", isNew: true }]); setIsSpeaking(false); } finally { setIsThinking(false); }
   };
 
   const handleModeSwitch = (mode: ViewMode) => { if (viewMode === mode) return; setIsTransitioning(true); updateAudioMix(mode); setTimeout(() => { setViewMode(mode); setIsTransitioning(false); }, 500); };
@@ -947,7 +961,7 @@ const App = () => {
       </header>
       <main ref={scrollRef} className="flex-1 overflow-y-auto px-6 md:px-12 py-12 w-full max-w-3xl mx-auto scroll-smooth relative overscroll-y-contain">
         <div className={`transition-all duration-500 h-full ${isTransitioning ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
-            {viewMode === 'chat' && ( <div className="space-y-12">{messages.map((msg) => ( <div key={msg.id} className={`flex w-full message-fade-in ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>{msg.role === 'model' ? ( <div className="flex flex-col gap-4 max-w-full text-stone-500 font-serif text-lg font-light">{msg.isNew ? <TypewriterText text={msg.text} isStreaming={isThinking} onDone={() => setIsTyping(false)} /> : <FormattedText text={msg.text} />}</div> ) : ( <div className="flex flex-col items-end gap-2 max-w-[85%]">{msg.image && <img src={msg.image} className="w-32 h-32 object-cover rounded mb-2 border border-stone-800" />}<div className="bg-stone-900/5 px-6 py-4 italic font-serif tracking-widest leading-relaxed text-stone-600">"{msg.text}"</div></div> )}</div> ))}{isThinking && <div className="opacity-30 italic text-[9px] uppercase animate-pulse">Reflecting...</div>}<div className="h-20" /></div> )}
+            {viewMode === 'chat' && ( <div className="space-y-12">{messages.map((msg) => ( <div key={msg.id} className={`flex w-full message-fade-in ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>{msg.role === 'model' ? ( <div className="flex flex-col gap-4 max-w-full text-stone-500 font-serif text-lg font-light leading-relaxed">{msg.isNew ? <TypewriterText text={msg.text} isStreaming={isThinking} onDone={() => setIsTyping(false)} /> : <FormattedText text={msg.text} />}</div> ) : ( <div className="flex flex-col items-end gap-2 max-w-[85%]">{msg.image && <img src={msg.image} className="w-32 h-32 object-cover rounded mb-2 border border-stone-800" />}<div className="bg-stone-900/5 px-6 py-4 italic font-serif tracking-widest leading-relaxed text-stone-600">"{msg.text}"</div></div> )}</div> ))}{isThinking && <div className="opacity-30 italic text-[9px] uppercase animate-pulse">Reflecting...</div>}<div className="h-20" /></div> )}
             {viewMode === 'breathe' && (
               <BreathingView 
                 isActive={true} 
