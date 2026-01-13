@@ -578,7 +578,7 @@ const BurnerJournalView = ({ isAudioEnabled }: { isAudioEnabled: boolean }) => {
       <div className="relative w-full max-w-lg min-h-[400px]">
         <div className={`transition-all duration-700 ease-in-out w-full ${(mode === 'idle' || mode === 'burning') ? 'opacity-100 relative z-10' : 'opacity-0 absolute inset-0 z-0 pointer-events-none translate-y-8'}`}><textarea value={text} onChange={(e) => setText(e.target.value)} disabled={mode === 'burning'} placeholder="Type out what weighs on you..." className="w-full h-64 bg-stone-900/30 border border-stone-800/50 rounded-sm p-6 text-stone-400 font-serif text-lg italic focus:outline-none focus:border-[#d4af37]/30 transition-all resize-none placeholder-stone-700" /><div className="mt-8 flex justify-center"><button onClick={handleBurn} disabled={!text.trim() || mode === 'burning'} className="px-8 py-3 border border-stone-800 text-stone-500 hover:text-[#d4af37] hover:border-[#d4af37]/50 rounded-full text-xs uppercase tracking-[0.3em] transition-all disabled:opacity-30 disabled:cursor-not-allowed group relative overflow-hidden"><span className="relative z-10">Release</span><div className="absolute inset-0 bg-[#d4af37]/10 translate-y-full group-hover:translate-y-0 transition-transform duration-500"/></button></div></div>
         <div className={`transition-all duration-1000 ease-in-out flex flex-col items-center justify-center ${mode === 'essay' ? 'opacity-100 relative translate-y-0' : 'opacity-0 absolute inset-0 pointer-events-none -translate-y-4'}`}>{currentEssay && (<><h3 className="text-stone-400 font-serif text-lg italic mb-6 tracking-wide">"{currentEssay.title}"</h3><p className="text-stone-300 font-serif text-base md:text-xl leading-loose text-center font-light">{currentEssay.text}</p></>)}<div className="flex gap-4 mt-12"><button onClick={handleEdit} className="px-6 py-3 border border-stone-800 text-stone-600 hover:text-stone-400 text-[10px] uppercase tracking-widest rounded-full transition-colors">Edit Text</button><button onClick={handleReady} className="px-8 py-3 bg-[#d4af37]/10 border border-[#d4af37]/30 text-[#d4af37] hover:bg-[#d4af37]/20 text-[10px] uppercase tracking-widest rounded-full transition-all shadow-[0_0_15px_rgba(212,175,55,0.1)] hover:shadow-[0_0_25px_rgba(212,175,55,0.2)]">I am ready</button></div></div>
-        <div className={`transition-all duration-1000 ease-in-out flex flex-col items-center justify-center ${mode === 'reflection' ? 'opacity-100 relative translate-y-0' : 'opacity-0 absolute inset-0 pointer-events-none translate-y-4'}`}><div className="w-16 h-16 rounded-full bg-[#d4af37]/5 flex items-center justify-center mb-8 animate-pulse"><div className="w-2 h-2 bg-[#d4af37] rounded-full shadow-[0_0_10px_#d4af37]" /></div><p className="text-stone-400 font-serif text-xl md:text-2xl text-center leading-relaxed max-w-md">It is time to self reflect.<br /><span className="text-[#d4af37] text-lg opacity-80 mt-4 block">Put the phone away for a few minutes.</span></p><button onClick={handleEdit} className="mt-16 text-stone-700 hover:text-stone-500 text-[10px] uppercase tracking-[0.2em] transition-colors">Begin Again</button></div>
+        <div className={`transition-all duration-1000 ease-in-out flex flex-col items-center justify-center ${mode === 'reflection' ? 'opacity-100 relative translate-y-0' : 'opacity-0 absolute inset-0 pointer-events-none translate-y-4'}`}><div className="w-16 h-16 rounded-full bg-[#d4af37]/5 flex items-center justify-center mb-8 animate-pulse"><div className="w-2 h-2 bg-[#d4af37] rounded-full shadow-[0_0_10px_#d4af37]" /></div><p className="text-stone-400 font-serif text-xl md:text-2xl text-center leading-relaxed max-w-md">It is time to self reflect.<br /><span className="text-[#d4af37] text-lg mt-4 block">Put the phone away for a few minutes.</span></p><button onClick={handleEdit} className="mt-16 text-stone-700 hover:text-stone-500 text-[10px] uppercase tracking-[0.2em] transition-colors">Begin Again</button></div>
       </div>
     </div>
   );
@@ -616,6 +616,7 @@ const App = () => {
   const breathFilterRef = useRef<BiquadFilterNode | null>(null);
   const focusGainRef = useRef<GainNode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
   
   const isActive = isSpeaking || isTyping;
 
@@ -734,14 +735,56 @@ const App = () => {
     if (ctx.state === 'suspended') ctx.resume();
   }, []);
 
+  const playRandomBackgroundMusic = useCallback(() => {
+    // 1. Stop any existing music first (essential!)
+    if (backgroundMusicRef.current) {
+      const oldAudio = backgroundMusicRef.current;
+      // Quick fade out old track
+      const fadeOut = setInterval(() => {
+        if (oldAudio.volume > 0.05) oldAudio.volume -= 0.05;
+        else { oldAudio.pause(); clearInterval(fadeOut); }
+      }, 100);
+    }
+    
+    // 2. Pick a random track (1 to 15)
+    const trackNum = Math.floor(Math.random() * 15) + 1;
+    const audioPath = `/music/zen${trackNum}.mp3`;
+
+    // 3. Create new audio instance
+    const audio = new Audio(audioPath);
+    audio.loop = true; // Loop this track indefinitely until they leave
+    audio.volume = 0;  // Start silent
+
+    audio.play().catch(e => console.error("Background music failed:", e));
+    backgroundMusicRef.current = audio;
+
+    // 4. Slow, luxurious fade-in (5 seconds)
+    const fadeIn = setInterval(() => {
+        // Only fade in if music is actually enabled
+        if (!isMusicEnabled) {
+          audio.volume = 0;
+          clearInterval(fadeIn);
+          return;
+        }
+        // Cap volume at 0.4 so it doesn't overpower the voice/chat
+        if (audio.volume < 0.4) {
+            audio.volume = Math.min(0.4, audio.volume + 0.02);
+        } else {
+            clearInterval(fadeIn);
+        }
+    }, 250);
+  }, [isMusicEnabled]);
+
   const updateAudioMix = useCallback((mode: ViewMode, phase?: BreathingPhase) => {
       if (!ambientContextRef.current || !templeGainRef.current || !breathDroneGainRef.current) return;
       const ctx = ambientContextRef.current; 
       const now = ctx.currentTime; 
       if (!isMusicEnabled) {
         masterGainRef.current?.gain.setTargetAtTime(0, now, 0.5); 
+        if (backgroundMusicRef.current) backgroundMusicRef.current.volume = 0;
       } else {
         masterGainRef.current?.gain.setTargetAtTime(0.8, now, 1);
+        if (backgroundMusicRef.current) backgroundMusicRef.current.volume = 0.4;
       }
       if (mode === 'chat') { 
         templeGainRef.current.gain.setTargetAtTime(1, now, 3); 
@@ -789,38 +832,52 @@ const App = () => {
 
   const startIntroSequence = () => {
     if (loadingPhase !== 'init') return;
-
-    // 1. Initialize main audio engine
     initAudio();
-
-    // 2. Play the intro music directly from path
     const introAudio = new Audio("./intro.mp3"); 
     introAudio.volume = 1.0; 
     introAudio.play().catch(e => console.error("Audio play failed", e));
-
-    // 3. Sync visuals
     setLoadingPhase('logo-waiting');
-
     setTimeout(() => {
       setLoadingPhase('logo-bloom'); 
-      
       setTimeout(() => {
         setLoadingPhase('shift-and-quote'); 
-        
         setTimeout(() => {
-            // Fade out logic
             const fadeOut = setInterval(() => {
                 if (introAudio.volume > 0.05) introAudio.volume -= 0.05;
                 else { introAudio.pause(); clearInterval(fadeOut); }
             }, 100);
-            
             setLoadingPhase('reveal-instruction');
         }, 5000); 
       }, 2000);
     }, 1200);
   };
 
-  const enterSanctuary = useCallback(() => { if (loadingPhase !== 'reveal-instruction') return; setLoadingPhase('entering'); strikeZenBell(1.0); initAudio(); if (ambientContextRef.current && masterGainRef.current) { updateAudioMix('chat'); } const sequence = async () => { await new Promise(r => setTimeout(r, 1500)); setIsOverlayFading(true); await new Promise(r => setTimeout(r, 800)); setIsMonkEntering(true); await new Promise(r => setTimeout(r, 1000)); setLoadingPhase('done'); await new Promise(r => setTimeout(r, 1400)); setIsMonkEntering(false); setIsSettled(true); setMessages([{ id: 'init', role: 'model', text: "I am here. The noise of the world cannot reach us in this place. What is on your mind?", isNew: true }]); }; sequence(); }, [loadingPhase, initAudio, strikeZenBell, updateAudioMix]);
+  const enterSanctuary = useCallback(() => { 
+    if (loadingPhase !== 'reveal-instruction') return; 
+    setLoadingPhase('entering'); 
+    strikeZenBell(1.0); 
+    initAudio(); 
+    if (ambientContextRef.current && masterGainRef.current) { 
+      updateAudioMix('chat'); 
+    } 
+    
+    // START THE LOOPS HERE
+    playRandomBackgroundMusic();
+
+    const sequence = async () => { 
+      await new Promise(r => setTimeout(r, 1500)); 
+      setIsOverlayFading(true); 
+      await new Promise(r => setTimeout(r, 800)); 
+      setIsMonkEntering(true); 
+      await new Promise(r => setTimeout(r, 1000)); 
+      setLoadingPhase('done'); 
+      await new Promise(r => setTimeout(r, 1400)); 
+      setIsMonkEntering(false); 
+      setIsSettled(true); 
+      setMessages([{ id: 'init', role: 'model', text: "I am here. The noise of the world cannot reach us in this place. What is on your mind?", isNew: true }]); 
+    }; 
+    sequence(); 
+  }, [loadingPhase, initAudio, strikeZenBell, updateAudioMix, playRandomBackgroundMusic]);
 
   useEffect(() => {
     setLoadingQuote(LOADING_QUOTES[Math.floor(Math.random() * LOADING_QUOTES.length)]);
