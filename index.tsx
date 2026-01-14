@@ -718,60 +718,34 @@ const App = () => {
     if (ctx.state === 'suspended') ctx.resume();
   }, []);
 
-  const playRandomBackgroundMusic = useCallback(() => {
-    if (backgroundMusicRef.current) {
-      const oldAudio = backgroundMusicRef.current;
-      const fadeOut = setInterval(() => {
-        if (oldAudio.volume > 0.05) oldAudio.volume -= 0.05;
-        else { oldAudio.pause(); clearInterval(fadeOut); }
-      }, 100);
-    }
-    
-    const trackNum = Math.floor(Math.random() * 15) + 1;
-    const audioPath = `/music/zen${trackNum}.mp3`;
-
-    const audio = new Audio(audioPath);
-    audio.loop = true;
-    audio.volume = 0; 
-
-    audio.play().catch(e => console.error("Background music failed:", e));
-    backgroundMusicRef.current = audio;
-
-    const fadeIn = setInterval(() => {
-        if (!isMusicEnabled || viewMode !== 'chat') {
-          audio.volume = 0;
-          clearInterval(fadeIn);
-          return;
-        }
-        if (audio.volume < 0.4) {
-            audio.volume = Math.min(0.4, audio.volume + 0.02);
-        } else {
-            clearInterval(fadeIn);
-        }
-    }, 250);
-  }, [isMusicEnabled, viewMode]);
-
   const updateAudioMix = useCallback((mode: ViewMode, phase?: BreathingPhase) => {
     if (!ambientContextRef.current || !templeGainRef.current || !breathDroneGainRef.current) return;
     
     const ctx = ambientContextRef.current;
     const now = ctx.currentTime;
 
-    // --- 1. Handle Web Audio Master Volume ---
+    // --- 1. Handle Master Mute (isMusicEnabled toggle) ---
     if (!isMusicEnabled) {
       masterGainRef.current?.gain.setTargetAtTime(0, now, 0.5);
     } else {
       masterGainRef.current?.gain.setTargetAtTime(0.8, now, 1);
     }
 
-    // --- 2. Handle MP3 Background Music (The Fix) ---
-    // Only play MP3 music if global music is ON AND we are in 'chat' mode
+    // --- 2. Handle MP3 Background Music Volume ---
+    // Music should ONLY play if enabled AND we are in 'chat' mode
     if (backgroundMusicRef.current) {
-        // If music is disabled OR we are NOT in chat mode, volume should be 0
         const targetMp3Volume = (isMusicEnabled && mode === 'chat') ? 0.4 : 0;
         
-        // Smoothly transition the HTML Audio element volume
+        // Sync volume immediately to the HTML Audio element
         backgroundMusicRef.current.volume = targetMp3Volume;
+        
+        // Ensure play state matches target volume
+        if (targetMp3Volume > 0 && backgroundMusicRef.current.paused) {
+            backgroundMusicRef.current.play().catch(e => console.log("Audio play deferred", e));
+        } else if (targetMp3Volume === 0 && !backgroundMusicRef.current.paused) {
+            // Optional: keep it playing at 0 or pause it. Pausing is safer for battery.
+            // backgroundMusicRef.current.pause(); 
+        }
     }
 
     // --- 3. Handle Web Audio Mixes ---
@@ -808,6 +782,26 @@ const App = () => {
       focusGainRef.current?.gain.setTargetAtTime(0, now, 3);
     }
   }, [isMusicEnabled]);
+
+  const playRandomBackgroundMusic = useCallback(() => {
+    // Stop current track if it exists
+    if (backgroundMusicRef.current) {
+       backgroundMusicRef.current.pause();
+    }
+    
+    const trackNum = Math.floor(Math.random() * 15) + 1;
+    const audioPath = `./music/zen${trackNum}.mp3`;
+
+    const audio = new Audio(audioPath);
+    audio.loop = true;
+    
+    // Set initial volume based on current state
+    const targetMp3Volume = (isMusicEnabled && viewMode === 'chat') ? 0.4 : 0;
+    audio.volume = targetMp3Volume;
+
+    audio.play().catch(e => console.error("Background music failed:", e));
+    backgroundMusicRef.current = audio;
+  }, [isMusicEnabled, viewMode]);
 
   const strikeZenBell = useCallback((multiplier = 1.0) => {
     if (!isMusicEnabled) return; initAudio(); if (!ambientContextRef.current) return;
@@ -847,7 +841,9 @@ const App = () => {
     setLoadingPhase('entering'); 
     strikeZenBell(1.0); 
     initAudio(); 
-    if (ambientContextRef.current && masterGainRef.current) { 
+    
+    // Sync volumes before playing
+    if (ambientContextRef.current) { 
       updateAudioMix('chat'); 
     } 
     
@@ -882,6 +878,7 @@ const App = () => {
     });
   }, []);
 
+  // Update audio mix whenever relevant state changes
   useEffect(() => { updateAudioMix(viewMode); }, [isMusicEnabled, updateAudioMix, viewMode]);
 
   const handleSend = async () => {
@@ -907,7 +904,16 @@ const App = () => {
     } catch (e) { setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "The path is momentarily obscured by mist. *Breathe* with me, and we shall try again when the air settles.", isNew: true }]); setIsSpeaking(false); } finally { setIsThinking(false); }
   };
 
-  const handleModeSwitch = (mode: ViewMode) => { if (viewMode === mode) return; setIsTransitioning(true); updateAudioMix(mode); setTimeout(() => { setViewMode(mode); setIsTransitioning(false); }, 500); };
+  const handleModeSwitch = (mode: ViewMode) => { 
+    if (viewMode === mode) return; 
+    setIsTransitioning(true); 
+    // Proactively update mix to ensure music mutes immediately
+    updateAudioMix(mode); 
+    setTimeout(() => { 
+        setViewMode(mode); 
+        setIsTransitioning(false); 
+    }, 500); 
+  };
 
   useEffect(() => { if (scrollRef.current && viewMode === 'chat') scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, isThinking, viewMode]);
 
