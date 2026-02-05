@@ -57,39 +57,6 @@ const JOURNAL_ESSAYS = [
 ];
 
 // --- Audio Utilities ---
-const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-
-function decode(base64: string) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function decodeAudioData(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
-  }
-  return buffer;
-}
-
-// --- Icons & Components ---
-
 const FormattedText = ({ text }: { text: string }) => {
   if (!text) return null;
   const boldParts = text.split(/(\*\*.*?\*\*)/g);
@@ -214,7 +181,7 @@ const MorphingHeaderIcon = ({ mode, className = "" }: { mode: 'chat' | 'breathe'
   );
 };
 
-const HeaderControls = ({ isMusic, toggleMusic, isVoice, toggleVoice, onAboutClick, hidden }: { isMusic: boolean, toggleMusic: () => void, isVoice: boolean, toggleVoice: () => void, onAboutClick: () => void, hidden?: boolean }) => {
+const HeaderControls = ({ isMusic, toggleMusic, onAboutClick, hidden }: { isMusic: boolean, toggleMusic: () => void, onAboutClick: () => void, hidden?: boolean }) => {
   const [showAudioMenu, setShowAudioMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -229,7 +196,7 @@ const HeaderControls = ({ isMusic, toggleMusic, isVoice, toggleVoice, onAboutCli
   return (
     <div className={`absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 z-50 flex gap-3 items-center transition-all duration-1000 animate-in fade-in zoom-in-95 ${hidden ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
       <div className="relative" ref={menuRef}>
-        <button onClick={(e) => { e.stopPropagation(); setShowAudioMenu(!showAudioMenu); }} className={`p-3 rounded-full border backdrop-blur-md transition-all duration-300 group ${showAudioMenu || isMusic || isVoice ? 'text-[#d4af37] bg-stone-900/40 border-[#d4af37]/30' : 'text-stone-600 bg-transparent border-stone-800/50 hover:text-stone-400 hover:border-stone-700'}`} aria-label="Audio Settings">
+        <button onClick={(e) => { e.stopPropagation(); setShowAudioMenu(!showAudioMenu); }} className={`p-3 rounded-full border backdrop-blur-md transition-all duration-300 group ${showAudioMenu || isMusic ? 'text-[#d4af37] bg-stone-900/40 border-[#d4af37]/30' : 'text-stone-600 bg-transparent border-stone-800/50 hover:text-stone-400 hover:border-stone-700'}`} aria-label="Audio Settings">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>
         </button>
         {showAudioMenu && (
@@ -241,14 +208,6 @@ const HeaderControls = ({ isMusic, toggleMusic, isVoice, toggleVoice, onAboutCli
                       <span className={`text-[10px] uppercase tracking-widest font-serif ${isMusic ? 'text-stone-200' : 'text-stone-500'}`}>Ambience</span>
                    </div>
                    <div className={`w-1.5 h-1.5 rounded-full transition-all ${isMusic ? 'bg-[#d4af37] shadow-[0_0_8px_#d4af37]' : 'bg-stone-800'}`} />
-                </button>
-                <div className="h-[1px] bg-stone-800/50 mx-4" />
-                <button onClick={(e) => { e.stopPropagation(); toggleVoice(); }} className="w-full px-4 py-3 flex items-center justify-between hover:bg-stone-800/30 transition-colors group">
-                   <div className="flex items-center gap-3">
-                      <span className={`text-[#d4af37] transition-opacity ${isVoice ? 'opacity-100' : 'opacity-40'}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></span>
-                      <span className={`text-[10px] uppercase tracking-widest font-serif ${isVoice ? 'text-stone-200' : 'text-stone-500'}`}>Voice</span>
-                   </div>
-                   <div className={`w-1.5 h-1.5 rounded-full transition-all ${isVoice ? 'bg-[#d4af37] shadow-[0_0_8px_#d4af37]' : 'bg-stone-800'}`} />
                 </button>
              </div>
           </div>
@@ -547,7 +506,7 @@ const BreathingView = ({ isActive, onImmersiveChange, onPhaseChange }: { isActiv
   );
 };
 
-const BurnerJournalView = ({ isAudioEnabled }: { isAudioEnabled: boolean }) => {
+const BurnerJournalView = () => {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<'idle' | 'burning' | 'essay' | 'reflection'>('idle');
   const [currentEssay, setCurrentEssay] = useState<typeof JOURNAL_ESSAYS[0] | null>(null);
@@ -582,7 +541,6 @@ const App = () => {
   const [isThinking, setIsThinking] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [isAudioEnabled, setIsAudioEnabled] = useState(false); 
   const [isMusicEnabled, setIsMusicEnabled] = useState(true);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
@@ -601,6 +559,10 @@ const App = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
   
+  // Refs for tracking and ramping the background music volume
+  const targetMusicVolumeRef = useRef<number>(0);
+  const currentMusicVolumeRef = useRef<number>(0);
+
   const isActive = isSpeaking || isTyping;
 
   const initAudio = useCallback(() => {
@@ -727,22 +689,11 @@ const App = () => {
     // --- 1. Handle Master Mute (isMusicEnabled toggle) ---
     if (!isMusicEnabled) {
       masterGainRef.current?.gain.setTargetAtTime(0, now, 0.5);
+      targetMusicVolumeRef.current = 0;
     } else {
       masterGainRef.current?.gain.setTargetAtTime(0.8, now, 1);
-    }
-
-    // --- 2. Handle MP3 Background Music Volume ---
-    // Music should ONLY play if enabled AND we are in 'chat' mode
-    if (backgroundMusicRef.current) {
-        const targetMp3Volume = (isMusicEnabled && mode === 'chat') ? 0.4 : 0;
-        
-        // Sync volume immediately to the HTML Audio element
-        backgroundMusicRef.current.volume = targetMp3Volume;
-        
-        // Ensure play state matches target volume
-        if (targetMp3Volume > 0 && backgroundMusicRef.current.paused) {
-            backgroundMusicRef.current.play().catch(e => console.log("Audio play deferred", e));
-        }
+      // Music should ONLY play at full volume if enabled AND we are in 'chat' mode
+      targetMusicVolumeRef.current = (mode === 'chat') ? 0.4 : 0.05; // Drop to very low instead of 0 for slight atmosphere in other tabs
     }
 
     // --- 3. Handle Web Audio Mixes ---
@@ -781,30 +732,50 @@ const App = () => {
   }, [isMusicEnabled]);
 
   const playRandomBackgroundMusic = useCallback(() => {
-    // Stop current track if it exists
+    // If a current track exists, clear it
     if (backgroundMusicRef.current) {
-       backgroundMusicRef.current.pause();
-       backgroundMusicRef.current.onended = null;
+      backgroundMusicRef.current.onended = null;
+      backgroundMusicRef.current.pause();
     }
     
+    // Pick a random track from zen1 to zen15
     const trackNum = Math.floor(Math.random() * 15) + 1;
     const audioPath = `./music/zen${trackNum}.mp3`;
 
     const audio = new Audio(audioPath);
-    // Removed audio.loop = true;
-    
-    // Setup listener to cycle to the next random track when this one finishes
+    // When the track ends, automatically play another random one
     audio.onended = () => {
       playRandomBackgroundMusic();
     };
 
     backgroundMusicRef.current = audio;
+    // Set initial volume to 0 and let the ramp logic take over
+    audio.volume = currentMusicVolumeRef.current;
+    
+    audio.play().catch(e => console.error("Background music deferred:", e));
+  }, []);
 
-    // Immediately sync volume for the new audio element
-    updateAudioMix(viewMode);
+  // Smooth Volume Ramping Loop for background MP3
+  useEffect(() => {
+    const volumeRampInterval = setInterval(() => {
+      if (!backgroundMusicRef.current) return;
+      
+      const target = targetMusicVolumeRef.current;
+      const current = currentMusicVolumeRef.current;
+      const step = 0.01; // How fast the fade happens
 
-    audio.play().catch(e => console.error("Background music failed:", e));
-  }, [updateAudioMix, viewMode]);
+      if (Math.abs(current - target) > step) {
+        const nextVolume = current < target ? current + step : current - step;
+        currentMusicVolumeRef.current = nextVolume;
+        backgroundMusicRef.current.volume = nextVolume;
+      } else {
+        currentMusicVolumeRef.current = target;
+        backgroundMusicRef.current.volume = target;
+      }
+    }, 30); // ~33fps for volume updates
+
+    return () => clearInterval(volumeRampInterval);
+  }, []);
 
   const strikeZenBell = useCallback((multiplier = 1.0) => {
     if (!isMusicEnabled) return; initAudio(); if (!ambientContextRef.current) return;
@@ -845,7 +816,6 @@ const App = () => {
     strikeZenBell(1.0); 
     initAudio(); 
     
-    // Sync volumes before playing
     if (ambientContextRef.current) { 
       updateAudioMix('chat'); 
     } 
@@ -881,7 +851,6 @@ const App = () => {
     });
   }, []);
 
-  // Update audio mix whenever relevant state changes
   useEffect(() => { updateAudioMix(viewMode); }, [isMusicEnabled, updateAudioMix, viewMode]);
 
   const handleSend = async () => {
@@ -910,7 +879,6 @@ const App = () => {
   const handleModeSwitch = (mode: ViewMode) => { 
     if (viewMode === mode) return; 
     setIsTransitioning(true); 
-    // Proactively update mix to ensure music mutes immediately
     updateAudioMix(mode); 
     setTimeout(() => { 
         setViewMode(mode); 
@@ -922,7 +890,7 @@ const App = () => {
 
   return (
     <div className="fixed inset-0 w-full h-full flex flex-col bg-[#12100e] text-stone-300 overflow-hidden site-entrance" onClick={() => loadingPhase === 'init' ? startIntroSequence() : loadingPhase === 'reveal-instruction' && enterSanctuary()}>
-      {isSettled && <HeaderControls isMusic={isMusicEnabled} toggleMusic={() => setIsMusicEnabled(prev => !prev)} isVoice={isAudioEnabled} toggleVoice={() => setIsAudioEnabled(prev => !prev)} onAboutClick={() => setShowAbout(true)} hidden={isImmersive} />}
+      {isSettled && <HeaderControls isMusic={isMusicEnabled} toggleMusic={() => setIsMusicEnabled(prev => !prev)} onAboutClick={() => setShowAbout(true)} hidden={isImmersive} />}
       <AboutModal isOpen={showAbout} onClose={() => setShowAbout(false)} />
       {loadingPhase !== 'done' && (
         <div className={`fixed inset-0 z-[100] bg-[#12100e] flex flex-col items-center justify-center overflow-hidden transition-opacity duration-[2000ms] ${isOverlayFading ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
@@ -961,7 +929,7 @@ const App = () => {
                 onPhaseChange={(p) => updateAudioMix('breathe', p)} 
               />
             )}
-            {viewMode === 'journal' && <BurnerJournalView isAudioEnabled={isAudioEnabled} />}
+            {viewMode === 'journal' && <BurnerJournalView />}
             {viewMode === 'focus' && <PomodoroView isActive={viewMode === 'focus' && !isTransitioning} onTimerComplete={() => strikeZenBell(1.2)} onRestoreComplete={playStartChime} onStart={playStartChime} />}
         </div>
       </main>
