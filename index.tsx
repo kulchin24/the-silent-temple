@@ -742,9 +742,6 @@ const App = () => {
         // Ensure play state matches target volume
         if (targetMp3Volume > 0 && backgroundMusicRef.current.paused) {
             backgroundMusicRef.current.play().catch(e => console.log("Audio play deferred", e));
-        } else if (targetMp3Volume === 0 && !backgroundMusicRef.current.paused) {
-            // Optional: keep it playing at 0 or pause it. Pausing is safer for battery.
-            // backgroundMusicRef.current.pause(); 
         }
     }
 
@@ -787,21 +784,27 @@ const App = () => {
     // Stop current track if it exists
     if (backgroundMusicRef.current) {
        backgroundMusicRef.current.pause();
+       backgroundMusicRef.current.onended = null;
     }
     
     const trackNum = Math.floor(Math.random() * 15) + 1;
     const audioPath = `./music/zen${trackNum}.mp3`;
 
     const audio = new Audio(audioPath);
-    audio.loop = true;
+    // Removed audio.loop = true;
     
-    // Set initial volume based on current state
-    const targetMp3Volume = (isMusicEnabled && viewMode === 'chat') ? 0.4 : 0;
-    audio.volume = targetMp3Volume;
+    // Setup listener to cycle to the next random track when this one finishes
+    audio.onended = () => {
+      playRandomBackgroundMusic();
+    };
+
+    backgroundMusicRef.current = audio;
+
+    // Immediately sync volume for the new audio element
+    updateAudioMix(viewMode);
 
     audio.play().catch(e => console.error("Background music failed:", e));
-    backgroundMusicRef.current = audio;
-  }, [isMusicEnabled, viewMode]);
+  }, [updateAudioMix, viewMode]);
 
   const strikeZenBell = useCallback((multiplier = 1.0) => {
     if (!isMusicEnabled) return; initAudio(); if (!ambientContextRef.current) return;
